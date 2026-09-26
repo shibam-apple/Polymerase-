@@ -96,3 +96,30 @@ describe('simulated source → session pipeline', () => {
     expect(a.quality).not.toBe('poor');
   });
 });
+
+describe('contact-gated buffer', () => {
+  it('skips warm-up and finger-off spans, keeps time continuous, and HR stays accurate', () => {
+    const { ContactBuffer } = require('../src/signal/useHeartMeasurement');
+    const t = frameTimes(70, 30);
+    const v = simulatePpg(t, { hr: 72, rsaMs: 30, inverted: true, seed: 8 });
+    const buf = new ContactBuffer(3);
+    t.forEach((ti, i) => {
+      const lifted = ti >= 30 && ti < 34; // finger off for 4 s
+      buf.push({ t: ti, v: lifted ? 90 : v[i], r: lifted ? 90 : v[i], g: 50, b: 20, contact: !lifted });
+    });
+    // 70 s total − 3 s warm-up − 4 s lifted ≈ 63 s of analysed signal, with no time gaps.
+    expect(buf.seconds).toBeGreaterThan(61.5);
+    expect(buf.seconds).toBeLessThan(64);
+    const gaps = buf.t.slice(1).map((x: number, i: number) => x - buf.t[i]);
+    expect(Math.max(...gaps)).toBeLessThan(0.1);
+    const a = analyzeSession({ t: buf.t, channels: { r: buf.r }, inverted: true })!;
+    expect(Math.abs(a.metrics!.hr - 72)).toBeLessThanOrEqual(2);
+  });
+
+  it('collects nothing while the finger never covers the lens', () => {
+    const { ContactBuffer } = require('../src/signal/useHeartMeasurement');
+    const buf = new ContactBuffer(3);
+    frameTimes(20, 30).forEach(ti => buf.push({ t: ti, v: 100, contact: false }));
+    expect(buf.t.length).toBe(0);
+  });
+});

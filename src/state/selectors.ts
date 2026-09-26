@@ -1,5 +1,5 @@
 import { C, fill, MOODS, NAMES, PILLARS, tint, type Pillar, type VitalKey } from '../theme';
-import type { Item, State, Vital } from './types';
+import type { Item, State } from './types';
 
 // Pure ports of the design's `renderVals` computations. No React, no side effects.
 
@@ -73,27 +73,6 @@ export function readiness(items: Item[]) {
     habit: `${habDone} of ${habDue.length} habits due so far are done. Small ones like water add up quickly.`,
   };
   return { pts, score, color, label, sub, lift, moodIdx, values, notes, gain };
-}
-
-export const WEEK_SCORES = [72, 68, 81, 64, 77, 85];
-
-// ── Health age ───────────────────────────────────────────────────────────────
-export const REAL_AGE = 38;
-export function healthAge(v: Record<VitalKey, Vital>, readinessScore: number) {
-  const rhr = v.rhr.v[0], sys = v.bp.v[0], dia = v.bp.v[1], bmi = v.weight.v[0] / (1.76 * 1.76);
-  const parts = ([
-    ['Resting HR', rhr < 60 ? -2 : rhr < 70 ? -1 : 1],
-    ['Blood pressure', sys < 120 && dia < 80 ? -1 : sys < 130 ? 0 : 2],
-    ['Sleep', -1],
-    ['Weight', bmi >= 18.5 && bmi < 25 ? -1 : 1],
-    ['Readiness', readinessScore >= 80 ? -1 : 0],
-  ] as [string, number][]).filter(p => p[1] !== 0);
-  const age = REAL_AGE + parts.reduce((a, p) => a + p[1], 0), dYrs = REAL_AGE - age;
-  return {
-    age, dYrs, parts,
-    color: dYrs > 0 ? '#34e27a' : dYrs === 0 ? '#ffd24a' : '#ff6b5a',
-    diff: dYrs > 0 ? `${dYrs} years younger` : dYrs < 0 ? `${-dYrs} years older` : 'Same',
-  };
 }
 
 // ── Vitals ───────────────────────────────────────────────────────────────────

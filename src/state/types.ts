@@ -1,3 +1,4 @@
+import type { Profile } from '../health/healthAge';
 import type { Pillar, VitalKey } from '../theme';
 
 export type Item = {
@@ -15,10 +16,14 @@ export type Item = {
 
 export type Vital = { v: number[]; hist: number[]; when: string; auto?: boolean };
 
-export type HeartEntry = { at: number; hr: number; rmssd: number };
+/** One saved camera measurement (real data only). */
+export type HeartEntry = { at: number; hr: number; rmssd: number; score?: number; respRate?: number | null; source?: 'camera' | 'simulated' };
+
+/** A night of sleep, keyed by the date you woke up (YYYY-MM-DD). */
+export type SleepEntry = { date: string; bed: string; wake: string; hours: number; quality: number };
 
 export type Tab = 'today' | 'progress' | 'details' | 'report';
-export type SheetKind = null | 'quick' | 'mood' | 'vital' | 'item' | 'share';
+export type SheetKind = null | 'quick' | 'mood' | 'vital' | 'item' | 'share' | 'sleep' | 'profile';
 export type Toast = { text: string; undo?: number[] | null; key: number } | null;
 export type RepPhase = 'idle' | 'gen' | 'ready';
 
@@ -37,8 +42,11 @@ export type State = {
   vitalKey: Exclude<VitalKey, 'rhr'>;
   toast: Toast;
   vitals: Record<VitalKey, Vital>;
-  hrv: number;
   heartLog: HeartEntry[];
+  sleepLog: SleepEntry[];
+  profile: Profile;
+  /** Local date (YYYY-MM-DD) the day's schedule belongs to; a new day resets the checklist. */
+  day: string;
   filter: 'all' | Pillar;
   notify: Record<string, boolean>;
   rep: Record<Pillar, boolean>;

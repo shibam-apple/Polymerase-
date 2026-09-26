@@ -1,68 +1,117 @@
-import { BlurTargetView, BlurView } from 'expo-blur';
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { createContext, useContext, useRef, type ReactNode, type RefObject } from 'react';
-import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { findNodeHandle, Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { LiquidGlassView } from '../../../modules/liquid-glass';
 import { DAY_INK } from '../../theme';
 import { InkProvider } from '../Text';
-import { GLASS_TIER } from './capabilities';
-
-const TargetCtx = createContext<RefObject<View | null> | null>(null);
+import { GLASS_TIER, NATIVE_GLASS } from './capabilities';
 
 /**
- * Wraps the backdrop layers (wallpaper, neutral tint). On Android, BlurViews blur this target;
- * keeping cards outside it avoids recursive blur and keeps the cost to one backdrop.
+ * Two backdrops the glass can refract:
+ *  - `wallpaper`  the sky / neutral layers behind everything (cards use this: they scroll over it)
+ *  - `content`    wallpaper + scrolling content (the tab bar and sheets, which float above the scroll view)
+ * A glass view must never refract a backdrop that contains it; the native side refuses that.
  */
-export function GlassBackdrop({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
-  const ref = useContext(TargetCtx);
-  if (Platform.OS === 'android' && ref) return <BlurTargetView ref={ref} style={style}>{children}</BlurTargetView>;
-  return <View style={style}>{children}</View>;
-}
+export type BackdropKind = 'wallpaper' | 'content';
+type Tags = Record<BackdropKind, number | null>;
+const TagsCtx = createContext<{ tags: Tags; register: (k: BackdropKind, v: View | null) => void } | null>(null);
 
 export function GlassProvider({ children }: { children: ReactNode }) {
-  const ref = useRef<View | null>(null);
-  return <TargetCtx.Provider value={ref}>{children}</TargetCtx.Provider>;
+  const [tags, setTags] = useState<Tags>({ wallpaper: null, content: null });
+  const register = useCallback((k: BackdropKind, v: View | null) => {
+    // Tags only matter to the native Android glass (web has no findNodeHandle). Unmounts (null) are
+    // ignored so a re-render can't flip the tag off and on.
+    if (!NATIVE_GLASS || !v) return;
+    const tag = findNodeHandle(v);
+    setTags(t => (t[k] === tag ? t : { ...t, [k]: tag }));
+  }, []);
+  const value = useMemo(() => ({ tags, register }), [tags, register]);
+  return <TagsCtx.Provider value={value}>{children}</TagsCtx.Provider>;
+}
+
+/** Marks a view as a refractable backdrop. `collapsable={false}` keeps it a real native view. */
+export function GlassBackdrop({ kind = 'wallpaper', children, style }: { kind?: BackdropKind; children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  const register = useContext(TagsCtx)?.register;
+  const ref = useCallback((v: View | null) => register?.(kind, v), [register, kind]);
+  return <View ref={ref} collapsable={false} style={style}>{children}</View>;
+}
+
+export function useBackdropTag(kind: BackdropKind) {
+  return useContext(TagsCtx)?.tags[kind] ?? null;
 }
 
 /** Specular edge + soft drop shadow shared by every glass surface in the design. */
 export const GLASS_EDGE = 'inset 0 1px 1px rgba(255,255,255,.95), inset 0 -1px 1px rgba(255,255,255,.35), inset 0 0 18px rgba(255,255,255,.18)';
 export const GLASS_DROP = '0 12px 32px rgba(0,0,0,.1)';
 
+const hexA = (a: number) => Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16).padStart(2, '0').toUpperCase();
+
+/**
+ * The glass fill for one surface, per tier. Used by cards (`Glass`), the tab bar and sheets.
+ * On `liquid`, the shader tints the glass itself, so only a faint sheen is layered on top.
+ */
+export function GlassFill({ radius, tint, angle = 135, blur = 24, backdrop = 'wallpaper', lens = 1 }: { radius: number; tint: [number, number]; angle?: 135 | 160; blur?: number; backdrop?: BackdropKind; lens?: number }) {
+  const tag = useBackdropTag(backdrop);
+  const end = angle === 160 ? { x: 0.34, y: 1 } : { x: 1, y: 1 };
+  const avg = (tint[0] + tint[1]) / 2;
+  if (NATIVE_GLASS && LiquidGlassView) {
+    const liquid = GLASS_TIER === 'liquid';
+    return (
+      <>
+        <LiquidGlassView
+          style={StyleSheet.absoluteFill}
+          backdropTag={tag}
+          cornerRadius={radius}
+          refraction={liquid ? 1.1 * lens : 0}
+          dispersion={0.35}
+          bevel={Math.min(22, radius * 0.9)}
+          frost={liquid ? 2 : blur * 0.6}
+          specular={0.7}
+          tint={`#${hexA(liquid ? avg * 0.75 : avg)}FFFFFF`}
+        />
+        <LinearGradient colors={['rgba(255,255,255,.16)', 'rgba(255,255,255,0)', 'rgba(255,255,255,.05)']} locations={[0, 0.45, 1]} start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 1 }} style={StyleSheet.absoluteFill} />
+      </>
+    );
+  }
+  const live = GLASS_TIER === 'blur';
+  // Frosted tier: no blur, so lift the tint to keep text contrast and the frosted look.
+  const [a, b] = live ? tint : [Math.min(0.92, tint[0] + 0.14), Math.min(0.85, tint[1] + 0.26)];
+  return (
+    <>
+      {live && Platform.OS !== 'android' && <BlurView intensity={Math.min(100, blur * 1.6)} tint="light" style={StyleSheet.absoluteFill} />}
+      <LinearGradient colors={[`rgba(255,255,255,${a})`, `rgba(255,255,255,${b})`]} start={{ x: 0, y: 0 }} end={end} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['rgba(255,255,255,.22)', 'rgba(255,255,255,0)', 'rgba(255,255,255,.08)']} locations={[0, 0.45, 1]} start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 1 }} style={StyleSheet.absoluteFill} />
+    </>
+  );
+}
+
 export type GlassProps = {
   radius: number;
-  /** Top-left and bottom-right white alpha of the tint gradient (design: .72→.42, .66→.34, .8→.5). */
+  /** Top-left and bottom-right white alpha of the tint (design: .72→.42, .66→.34, .8→.5). */
   tint?: [number, number];
   /** 135deg for most cards, 160deg for the hero cards. */
   angle?: 135 | 160;
   blur?: number;
   border?: number;
   shadow?: boolean;
+  /** Plain frosted fill even where live glass is available (dense lists; saves GPU). */
+  flat?: boolean;
   style?: StyleProp<ViewStyle>;
   innerStyle?: StyleProp<ViewStyle>;
   children?: ReactNode;
   testID?: string;
 };
 
-export function Glass({ radius, tint = [0.72, 0.42], angle = 135, blur = 24, border = 0.75, shadow = true, style, innerStyle, children, testID }: GlassProps) {
-  const target = useContext(TargetCtx);
-  const live = GLASS_TIER === 'live';
-  // Frosted tier: no blur, so lift the tint to keep text contrast and the frosted look.
-  const [a, b] = live ? tint : [Math.min(0.92, tint[0] + 0.14), Math.min(0.85, tint[1] + 0.26)];
-  const end = angle === 160 ? { x: 0.34, y: 1 } : { x: 1, y: 1 };
+export function Glass({ radius, tint = [0.72, 0.42], angle = 135, blur = 24, border = 0.75, shadow = true, flat, style, innerStyle, children, testID }: GlassProps) {
   return (
     <View testID={testID} style={[{ borderRadius: radius, boxShadow: shadow ? GLASS_DROP : undefined }, style]}>
       <View style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: 'hidden' }]} pointerEvents="none">
-        {live && (
-          <BlurView
-            intensity={Math.min(100, blur * 1.6)}
-            tint="light"
-            blurMethod="dimezisBlurViewSdk31Plus"
-            blurTarget={Platform.OS === 'android' ? target ?? undefined : undefined}
-            style={StyleSheet.absoluteFill}
-          />
+        {flat ? (
+          <LinearGradient colors={[`rgba(255,255,255,${Math.min(0.9, tint[0] + 0.1)})`, `rgba(255,255,255,${Math.min(0.8, tint[1] + 0.2)})`]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+        ) : (
+          <GlassFill radius={radius} tint={tint} angle={angle} blur={blur} />
         )}
-        <LinearGradient colors={[`rgba(255,255,255,${a})`, `rgba(255,255,255,${b})`]} start={{ x: 0, y: 0 }} end={end} style={StyleSheet.absoluteFill} />
-        {/* Diagonal sheen: the light-catching band across thick glass. */}
-        <LinearGradient colors={['rgba(255,255,255,.22)', 'rgba(255,255,255,0)', 'rgba(255,255,255,.08)']} locations={[0, 0.45, 1]} start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 1 }} style={StyleSheet.absoluteFill} />
       </View>
       <View style={[{ borderRadius: radius, borderWidth: 1, borderColor: `rgba(255,255,255,${border})`, boxShadow: GLASS_EDGE }, innerStyle]}>
         <InkProvider value={DAY_INK}>{children}</InkProvider>

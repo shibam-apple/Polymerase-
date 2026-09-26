@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { Platform, Share, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
-import { mean, std } from '../signal/filters';
+import { mean } from '../signal/filters';
 import { hrvFromIbis } from '../signal/hrv';
+import { deriveHealth } from '../state/health';
 import { useHeart } from '../state/heart';
 import { useStore } from '../state/store';
 import { accent, fill, ink } from '../theme';
@@ -47,19 +48,19 @@ export function Heart({ onBack }: { onBack: () => void }) {
   const h = useHeart();
   const [range, setRange] = useState<'week' | 'month'>('week');
   const [w, setW] = useState(0);
-  const log = s.heartLog.slice(range === 'week' ? -7 : -30);
-  const hr = log.map(e => e.hr), rm = log.map(e => e.rmssd);
-  const all = s.heartLog.map(e => Math.log(e.rmssd));
-  const m = mean(all), sd = std(all);
-  const band: [number, number] = [Math.exp(m - 0.5 * sd), Math.exp(m + 0.5 * sd)];
-  const latest = s.heartLog[s.heartLog.length - 1];
-  const hrvState = latest.rmssd < band[0] ? { t: 'Below your normal range', sub: 'Often follows poor sleep, stress, illness or hard training. Take it easier today.', c: '#c25e00' }
+  // One morning value per day (the recovery algorithm's inputs), so trends match the scores.
+  const d = deriveHealth(s);
+  const days = d.days.filter(x => x.rhr != null).slice(range === 'week' ? -7 : -30);
+  const hr = days.map(x => x.rhr!), rm = days.map(x => Math.round(Math.exp(x.lnRmssd ?? 0)));
+  const band = d.recovery.band;
+  const latest = d.latestHeart;
+  const hrvState = !latest || !band ? null
+    : latest.rmssd < band[0] ? { t: 'Below your normal range', sub: 'Often follows poor sleep, stress, illness or hard training. Take it easier today.', c: '#c25e00' }
     : latest.rmssd > band[1] ? { t: 'Above your normal range', sub: 'Usually a sign you’re well recovered.', c: '#248a3d' }
     : { t: 'Within your normal range', sub: 'Your recovery looks typical for you.', c: '#248a3d' };
 
   const L = h.live, measuring = L.phase === 'measuring';
   const session = L.ibis.length >= 3 ? hrvFromIbis(L.ibis.map(ms => ({ ms, valid: true }))) : null;
-  const labels: [string, string] = range === 'week' ? ['7 days ago', 'Today'] : ['30 days ago', 'Today'];
   const inner = Math.max(0, w - 32);
 
   return (
@@ -75,31 +76,42 @@ export function Heart({ onBack }: { onBack: () => void }) {
 
       <View style={{ marginTop: 14 }}><Segmented options={[['week', 'Week'], ['month', 'Month']]} value={range} onChange={setRange} /></View>
 
-      <Glass radius={24} style={{ marginTop: 14 }} innerStyle={{ padding: 16, gap: 10 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <T size={14} weight="600">Resting heart rate</T>
-          <T size={13} tone="ink2" tabular>avg {Math.round(mean(hr))} bpm</T>
-        </View>
-        <T size={28} weight="700" track={-0.03} tabular>{latest.hr}<T size={13} weight="500" tone="ink3"> bpm this morning</T></T>
-        <TrendChart key={`hr-${range}`} data={hr} color="#ff6b5a" width={inner} labels={labels} />
-      </Glass>
+      {days.length < 2 ? (
+        <Glass radius={24} style={{ marginTop: 14 }} innerStyle={{ padding: 16, gap: 6 }}>
+          <T size={15} weight="600">{latest ? `${latest.hr} bpm · HRV ${latest.rmssd} ms` : 'No measurements yet'}</T>
+          <T size={13} tone="ink2" lh={1.4}>Trends appear after measurements on two different mornings. Your personal normal range needs {3 - Math.min(3, d.recovery.baselineDays)} more.</T>
+        </Glass>
+      ) : (
+        <>
+          <Glass radius={24} style={{ marginTop: 14 }} innerStyle={{ padding: 16, gap: 10 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <T size={14} weight="600">Resting heart rate</T>
+              <T size={13} tone="ink2" tabular>avg {Math.round(mean(hr))} bpm</T>
+            </View>
+            <T size={28} weight="700" track={-0.03} tabular>{hr[hr.length - 1]}<T size={13} weight="500" tone="ink3"> bpm latest morning</T></T>
+            <TrendChart key={`hr-${range}`} data={hr} color="#ff6b5a" width={inner} labels={[`${days.length} mornings ago`, 'Latest']} />
+          </Glass>
 
-      <Glass radius={24} style={{ marginTop: 10 }} innerStyle={{ padding: 16, gap: 10 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <T size={14} weight="600">HRV · RMSSD</T>
-          <T size={13} tone="ink2" tabular>normal {Math.round(band[0])}–{Math.round(band[1])} ms</T>
-        </View>
-        <T size={28} weight="700" track={-0.03} tabular>{latest.rmssd}<T size={13} weight="500" tone="ink3"> ms</T></T>
-        <TrendChart key={`rm-${range}`} data={rm} color="#7c5cff" width={inner} band={band} labels={labels} />
-        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start', padding: 12, borderRadius: 14, backgroundColor: fill.quaternary }}>
-          <View style={{ width: 8, height: 8, borderRadius: 4, marginTop: 5, backgroundColor: hrvState.c }} />
-          <View style={{ flex: 1 }}>
-            <T size={14} weight="600">{hrvState.t}</T>
-            <T size={13} tone="ink2" lh={1.35}>{hrvState.sub}</T>
-          </View>
-        </View>
-        <T size={11} tone="ink3" lh={1.4}>The shaded band is your personal normal: the mean ± ½ SD of ln(RMSSD) across your readings.</T>
-      </Glass>
+          <Glass radius={24} style={{ marginTop: 10 }} innerStyle={{ padding: 16, gap: 10 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <T size={14} weight="600">HRV · RMSSD</T>
+              {band && <T size={13} tone="ink2" tabular>normal {Math.round(band[0])}–{Math.round(band[1])} ms</T>}
+            </View>
+            <T size={28} weight="700" track={-0.03} tabular>{rm[rm.length - 1]}<T size={13} weight="500" tone="ink3"> ms</T></T>
+            <TrendChart key={`rm-${range}`} data={rm} color="#7c5cff" width={inner} band={band ?? undefined} labels={[`${days.length} mornings ago`, 'Latest']} />
+            {hrvState && (
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start', padding: 12, borderRadius: 14, backgroundColor: fill.quaternary }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, marginTop: 5, backgroundColor: hrvState.c }} />
+                <View style={{ flex: 1 }}>
+                  <T size={14} weight="600">{hrvState.t}</T>
+                  <T size={13} tone="ink2" lh={1.35}>{hrvState.sub}</T>
+                </View>
+              </View>
+            )}
+            <T size={11} tone="ink3" lh={1.4}>The shaded band is your personal normal: the mean ± ½ SD of ln(RMSSD) over your previous mornings (after 3 of them).</T>
+          </Glass>
+        </>
+      )}
 
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 26, paddingHorizontal: 6, paddingBottom: 8 }}>
         <T size={19} weight="700" track={-0.015}>{measuring ? 'Measuring' : 'Latest session'}</T>
@@ -171,8 +183,8 @@ export function Heart({ onBack }: { onBack: () => void }) {
         </T>
       </Glass>
 
-      <T size={13} tone="ink2" style={{ paddingTop: 22, paddingHorizontal: 16, paddingBottom: 6 }}>Signal source</T>
-      <Segmented options={[['camera', 'Phone camera'], ['simulated', 'Simulated']]} value={h.source} onChange={k => { if (!measuring) h.setSource(k); }} />
+      {(Platform.OS === 'web' || __DEV__) && <T size={13} tone="ink2" style={{ paddingTop: 22, paddingHorizontal: 16, paddingBottom: 6 }}>Signal source</T>}
+      {(Platform.OS === 'web' || __DEV__) && <Segmented options={[['camera', 'Phone camera'], ['simulated', 'Simulated']]} value={h.source} onChange={k => { if (!measuring) h.setSource(k); }} />}
       <T size={11} tone="ink3" lh={1.4} style={{ paddingTop: 8, paddingHorizontal: 16 }}>
         {Platform.OS === 'web' ? 'Browsers can’t control the flash, so web builds use a simulated signal. ' : ''}
         Processing runs on the phone: band-pass filter, Elgendi peak detection, artefact rejection, then HR and HRV. Not a medical device.

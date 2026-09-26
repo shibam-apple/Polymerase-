@@ -1,36 +1,80 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { PermissionsAndroid, Platform } from 'react-native';
 import { useCamera, useCameraPermission, useFrameOutput, CommonResolutions, type Frame } from 'react-native-vision-camera';
 import { scheduleOnRN } from 'react-native-worklets';
 import type { PpgSample, SourceStatus } from '../sources';
+import { INITIAL_DIAG, type CameraDiag } from './diag';
 
 export type CameraPpgCaptureProps = {
   active: boolean;
   onSample: (s: PpgSample) => void;
   onStatus: (s: SourceStatus) => void;
-  /** Capture details for diagnostics (pixel format, achieved fps, which 3A locks succeeded). */
-  onInfo?: (info: Record<string, string | number | boolean>) => void;
+  onDiag?: (d: CameraDiag) => void;
 };
+
+/** Android: ask with the platform dialog directly (VisionCamera can report "denied" before ever asking). */
+async function ensurePermission(fallback: () => Promise<boolean>): Promise<CameraDiag['permission']> {
+  if (Platform.OS !== 'android') return (await fallback()) ? 'granted' : 'denied';
+  const P = PermissionsAndroid.PERMISSIONS.CAMERA;
+  if (await PermissionsAndroid.check(P)) return 'granted';
+  const r = await PermissionsAndroid.request(P, {
+    title: 'Camera for heart rate',
+    message: 'Daily reads your pulse from your fingertip using the rear camera and flash. Nothing is recorded or uploaded.',
+    buttonPositive: 'Allow',
+    buttonNegative: 'Not now',
+  });
+  return r === PermissionsAndroid.RESULTS.GRANTED ? 'granted' : r === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN ? 'blocked' : 'denied';
+}
 
 /**
  * Fingertip camera PPG. Rear camera + torch; the fingertip covers lens and flash. Every frame is
- * reduced to mean R, G, B over a sub-sampled centre grid (the pipeline later picks the channel with
- * the strongest pulse). After the torch has settled, auto-exposure, white balance and focus are locked
- * so the camera stops "correcting away" the pulse. A covered lens gives a red, almost uniform frame:
+ * reduced to mean R, G, B over a sub-sampled centre grid (the pipeline picks the channel with the
+ * strongest pulse). ~2.5 s after the torch comes on, exposure / white balance / focus are locked so
+ * the camera stops "correcting away" the pulse. A covered lens gives a red, almost uniform frame:
  * red dominance + low spatial variation = finger contact.
  *
- * NOTE: untested on a physical device from CI. See README → On-device checklist.
+ * If RGB frames don't arrive within 2.5 s the output is recreated in YUV (luma only). Everything that
+ * happens is reported through `onDiag` for the on-screen status line.
  */
-export function CameraPpgCapture({ active, onSample, onStatus, onInfo }: CameraPpgCaptureProps) {
-  const permission = useCameraPermission();
-  const unit = useRef<{ scale: number; last: number | null; t0: number | null; n: number; fmt: string }>({ scale: 0, last: null, t0: null, n: 0, fmt: '' });
+export function CameraPpgCapture({ active, onSample, onStatus, onDiag }: CameraPpgCaptureProps) {
+  const vcPermission = useCameraPermission();
+  const [granted, setGranted] = useState(false);
+  const [format, setFormat] = useState<'rgb' | 'yuv'>('rgb');
+  const diag = useRef<CameraDiag>({ ...INITIAL_DIAG });
+  const unit = useRef<{ scale: number; last: number | null; t0: number | null; lastReport: number }>({ scale: 0, last: null, t0: null, lastReport: 0 });
 
+  const report = useCallback((patch: Partial<CameraDiag>) => {
+    diag.current = { ...diag.current, ...patch };
+    onDiag?.(diag.current);
+  }, [onDiag]);
+
+  // Session start: reset counters, ask for permission if needed.
   useEffect(() => {
-    if (active && !permission.hasPermission) {
-      if (permission.canRequestPermission) permission.requestPermission().then(ok => { if (!ok) onStatus('error'); });
-      else onStatus('error');
-    }
-    if (active) { unit.current = { scale: 0, last: null, t0: null, n: 0, fmt: '' }; onStatus('starting'); }
-  }, [active, permission, onStatus]);
+    if (!active) return;
+    unit.current = { scale: 0, last: null, t0: null, lastReport: 0 };
+    diag.current = { ...INITIAL_DIAG, format };
+    onStatus('starting');
+    let cancelled = false;
+    ensurePermission(() => vcPermission.requestPermission())
+      .then(p => {
+        if (cancelled) return;
+        report({ permission: p });
+        setGranted(p === 'granted');
+        if (p !== 'granted') onStatus('error');
+      })
+      .catch(e => { if (!cancelled) { report({ lastError: `permission: ${String(e?.message ?? e)}` }); onStatus('error'); } });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  // No frames 2.5 s after the camera should be running → retry with YUV.
+  useEffect(() => {
+    if (!active || !granted || format === 'yuv') return;
+    const id = setTimeout(() => {
+      if (diag.current.frames === 0) { report({ format: 'yuv', lastError: 'no RGB frames after 2.5 s, retrying in YUV' }); setFormat('yuv'); }
+    }, 2500);
+    return () => clearTimeout(id);
+  }, [active, granted, format, report]);
 
   const receive = useCallback((ts: number, r: number, g: number, b: number, cv: number, fmt: string) => {
     const u = unit.current;
@@ -40,20 +84,21 @@ export function CameraPpgCapture({ active, onSample, onStatus, onInfo }: CameraP
       u.scale = d > 1e5 ? 1e-9 : d > 1 ? 1e-3 : 1;
     }
     u.last = ts;
+    const d = diag.current;
+    d.frames++;
     if (u.scale === 0) return;
-    if (u.t0 == null) { u.t0 = ts; u.fmt = fmt; }
-    u.n++;
+    if (u.t0 == null) u.t0 = ts;
     const t = (ts - u.t0) * u.scale;
-    const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+    // Status line refreshes about once a second, not per frame.
+    if (t - u.lastReport >= 1) { u.lastReport = t; report({ fps: Math.round((d.frames / Math.max(0.5, t)) * 10) / 10, pixelFormat: fmt }); }
     const contact = r > 40 && r > 1.4 * g && cv < 0.25;
     onStatus(contact ? 'running' : 'no-contact');
-    onSample({ t, v: r, r, g, b, luma, contact });
-    if (u.n === 150 && onInfo) onInfo({ pixelFormat: fmt, fps: Math.round((u.n / Math.max(0.001, t)) * 10) / 10 });
-  }, [onSample, onStatus, onInfo]);
+    onSample({ t, v: r, r, g, b, luma: 0.299 * r + 0.587 * g + 0.114 * b, contact });
+  }, [onSample, onStatus, report]);
 
   const frameOutput = useFrameOutput({
     targetResolution: CommonResolutions.VGA_4_3,
-    pixelFormat: 'rgb',
+    pixelFormat: format,
     onFrame(frame: Frame) {
       'worklet';
       try {
@@ -76,7 +121,8 @@ export function CameraPpgCapture({ active, onSample, onStatus, onInfo }: CameraP
             scheduleOnRN(receive, frame.timestamp, mr, sg / n, sb / n, mr > 0 ? sd / mr : 1, fmt);
           }
         } else {
-          // Planar (YUV) fallback: luma only, reported as all three channels.
+          // Planar (YUV): luma only. Reported with a synthetic red dominance so contact still works
+          // (under the torch a covered lens is bright and uniform).
           const planes = frame.getPlanes();
           if (planes.length > 0) {
             const y = planes[0], buf = new Uint8Array(y.getPixelBuffer()), row = y.bytesPerRow;
@@ -94,27 +140,28 @@ export function CameraPpgCapture({ active, onSample, onStatus, onInfo }: CameraP
   });
 
   const controller = useCamera({
-    isActive: active && permission.hasPermission,
+    isActive: active && granted,
     device: 'back',
     outputs: [frameOutput],
-    torchMode: active ? 'on' : 'off',
+    torchMode: active && granted ? 'on' : 'off',
     constraints: [{ fps: 30 }],
-    onError: () => onStatus('error'),
+    onStarted: () => report({ started: true }),
+    onError: e => { report({ lastError: String(e?.message ?? e).slice(0, 200) }); onStatus('error'); },
   });
 
   // Lock exposure / white balance / focus ~2.5 s after the torch comes on, once auto-exposure has
   // converged on the lit fingertip. Each lock is optional; unsupported devices just keep auto.
   useEffect(() => {
-    if (!active || !controller) return;
+    if (!active || !granted || !controller) return;
     const id = setTimeout(async () => {
-      const res: Record<string, boolean> = {};
+      const res: Partial<CameraDiag> = {};
       for (const [k, fn] of [['aeLocked', () => controller.lockCurrentExposure()], ['awbLocked', () => controller.lockCurrentWhiteBalance()], ['afLocked', () => controller.lockCurrentFocus()]] as const) {
         try { await fn(); res[k] = true; } catch { res[k] = false; }
       }
-      onInfo?.(res);
+      report(res);
     }, 2500);
     return () => clearTimeout(id);
-  }, [active, controller, onInfo]);
+  }, [active, granted, controller, report]);
 
   return null;
 }

@@ -1,3 +1,4 @@
+import { SNAP } from '../theme/motion';
 import { Blur, Canvas, Circle, ColorMatrix, Group, Mask, Paint, Path, Rect, Skia, useClock } from '@shopify/react-native-skia';
 import { useEffect, useMemo } from 'react';
 import { Easing, useDerivedValue, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
@@ -51,7 +52,7 @@ export function ReportOrb({ pillar, color, mode, size }: { pillar: Pillar; color
   useEffect(() => {
     if (mode === 'done') {
       close.value = withTiming(1, { duration: 550, easing: Easing.bezier(0.3, 1.2, 0.4, 1) });
-      pop.value = withSequence(withTiming(0.9, { duration: 1 }), withSpring(1, { damping: 6, stiffness: 180 }));
+      pop.value = withSequence(withTiming(0.95, { duration: 1 }), withSpring(1, SNAP));
       check.value = 0;
       check.value = withDelay(350, withTiming(1, { duration: 400, easing: Easing.out(Easing.quad) }));
     } else { close.value = 0; check.value = 0; }

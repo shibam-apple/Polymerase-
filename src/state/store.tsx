@@ -1,17 +1,33 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import { Platform } from 'react-native';
 import { MOODS, VMETA, type Pillar, type VitalKey } from '../theme';
-import { seedState } from './seed';
+import type { Profile } from '../health/healthAge';
+import { fmtHours } from './health';
+import { dayKey, seedItems, seedState } from './seed';
 import { fmtVital, REP_DEFS } from './selectors';
-import type { HeartEntry, Item, SheetKind, State, Tab } from './types';
+import type { HeartEntry, Item, SheetKind, SleepEntry, State, Tab } from './types';
 
 type Action =
   | { type: 'patch'; patch: Partial<State> }
   | { type: 'setDone'; ids: number[]; done: boolean }
   | { type: 'moodSaved'; id: number | null; label: string }
   | { type: 'vitalSaved'; key: VitalKey; v: number[] }
-  | { type: 'heartSaved'; entry: HeartEntry };
+  | { type: 'heartSaved'; entry: HeartEntry }
+  | { type: 'sleepSaved'; entry: SleepEntry }
+  | { type: 'hydrate'; saved: Persisted };
+
+/** The parts of state that survive restarts. The checklist only for the day it belongs to. */
+type Persisted = Pick<State, 'heartLog' | 'sleepLog' | 'profile' | 'vitals' | 'items' | 'water' | 'day' | 'rep'>;
+const STORAGE_KEY = 'daily:v2';
+const persistedOf = (s: State): Persisted => ({ heartLog: s.heartLog, sleepLog: s.sleepLog, profile: s.profile, vitals: s.vitals, items: s.items, water: s.water, day: s.day, rep: s.rep });
+
+/** Mark the Sleep row done with the logged duration when a night for today exists. */
+function withSleepItem(items: Item[], sleepLog: SleepEntry[], today: string): Item[] {
+  const e = sleepLog.find(x => x.date === today);
+  return items.map(i => (i.id === 1 ? { ...i, done: !!e, detail: e ? `${fmtHours(e.hours)} · ${e.bed}–${e.wake}` : 'Tap to log last night' } : i));
+}
 
 function reducer(s: State, a: Action): State {
   switch (a.type) {
@@ -23,13 +39,28 @@ function reducer(s: State, a: Action): State {
       return { ...s, sheet: null, pop: a.id, items: s.items.map(i => (i.id === a.id ? { ...i, done: true, detail: a.label } : i)) };
     case 'vitalSaved': {
       const cur = s.vitals[a.key];
-      return { ...s, vitals: { ...s.vitals, [a.key]: { ...cur, v: [...a.v], hist: [...cur.hist.slice(1), a.v[0]], when: 'Just now' } } };
+      return { ...s, vitals: { ...s.vitals, [a.key]: { ...cur, v: [...a.v], hist: [...cur.hist, a.v[0]].slice(-6), when: 'Just now' } } };
     }
     case 'heartSaved': {
       const rhr = s.vitals.rhr;
       return {
-        ...s, hrv: a.entry.rmssd, heartLog: [...s.heartLog, a.entry],
-        vitals: { ...s.vitals, rhr: { ...rhr, v: [a.entry.hr], hist: [...rhr.hist.slice(1), a.entry.hr], when: 'Just now' } },
+        ...s, heartLog: [...s.heartLog, a.entry].slice(-500),
+        vitals: { ...s.vitals, rhr: { ...rhr, v: [a.entry.hr], hist: [...rhr.hist, a.entry.hr].slice(-6), when: 'Just now' } },
+      };
+    }
+    case 'sleepSaved': {
+      const sleepLog = [...s.sleepLog.filter(x => x.date !== a.entry.date), a.entry].sort((x, y) => (x.date < y.date ? -1 : 1)).slice(-400);
+      return { ...s, sleepLog, sheet: null, pop: 1, items: withSleepItem(s.items, sleepLog, s.day) };
+    }
+    case 'hydrate': {
+      const today = dayKey();
+      const sameDay = a.saved.day === today;
+      const items = sameDay && a.saved.items?.length ? a.saved.items : seedItems();
+      const sleepLog = a.saved.sleepLog ?? [];
+      return {
+        ...s, ...a.saved, sleepLog, day: today, water: sameDay ? a.saved.water ?? 0 : 0, snoozed: [],
+        items: withSleepItem(items, sleepLog, today),
+        profile: { ...s.profile, ...(a.saved.profile ?? {}) },
       };
     }
   }
@@ -74,6 +105,7 @@ function useActions(s: State, dispatch: (a: Action) => void) {
       /** Tap on a row's check circle / hero button / swipe release. Mood items open the check-in instead. */
       complete: (it: Item) => {
         if (it.auto) return;
+        if (it.id === 1) { patch({ sheet: 'sleep' }); return; }
         if (!it.done && it.p === 'mind') { patch({ sheet: 'mood', moodFor: it.id }); return; }
         setDone([it.id], !it.done, `${it.title} logged`);
       },
@@ -97,6 +129,8 @@ function useActions(s: State, dispatch: (a: Action) => void) {
       },
       saveVital: (k: VitalKey, v: number[]) => { dispatch({ type: 'vitalSaved', key: k, v }); patch({ sheet: null }); tap('success'); toast(`${VMETA[k].name} · ${fmtVital(k, v)} saved`); },
       saveHeart: (e: HeartEntry) => { dispatch({ type: 'heartSaved', entry: e }); tap('success'); toast(`Saved · ${e.hr} bpm · HRV ${e.rmssd} ms`); },
+      saveSleep: (e: SleepEntry) => { dispatch({ type: 'sleepSaved', entry: e }); tap('success'); toast(`Sleep · ${fmtHours(e.hours)} logged`); },
+      saveProfile: (p: Profile) => { patch({ profile: p, sheet: null }); tap('success'); toast('Profile saved'); },
       undo: () => {
         const ids = latest.current.toast?.undo;
         if (ids) dispatch({ type: 'setDone', ids, done: false });
@@ -127,6 +161,21 @@ const Ctx = createContext<Store | null>(null);
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [s, dispatch] = useReducer(reducer, undefined, () => seedState());
   const a = useActions(s, dispatch);
+  const loaded = useRef(false);
+
+  // Load saved data once; then save (debounced) whenever the persisted parts change.
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEY)
+      .then(raw => { if (raw) dispatch({ type: 'hydrate', saved: JSON.parse(raw) as Persisted }); })
+      .catch(() => {})
+      .finally(() => { loaded.current = true; });
+  }, []);
+  const persisted = useMemo(() => persistedOf(s), [s.heartLog, s.sleepLog, s.profile, s.vitals, s.items, s.water, s.day, s.rep]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!loaded.current) return;
+    const id = setTimeout(() => { AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(persisted)).catch(() => {}); }, 400);
+    return () => clearTimeout(id);
+  }, [persisted]);
   const value = useMemo(() => ({ s, a }), [s, a]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

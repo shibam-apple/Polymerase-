@@ -1,7 +1,12 @@
 import { seedState } from '../src/state/seed';
-import { gridModel, healthAge, nextItem, parts, progress, readiness, vitalNote } from '../src/state/selectors';
+import { gridModel, nextItem, parts, progress, readiness, vitalNote } from '../src/state/selectors';
 
-const s = seedState(0);
+/** The design's 13:10 snapshot: the morning routine done (sleep, meds, mood "Good"). */
+const s = (() => {
+  const st = seedState(0);
+  st.items = st.items.map(i => (i.part === 0 ? { ...i, done: true, detail: i.p === 'mind' ? 'Good' : i.detail, auto: i.id === 1 ? true : i.auto } : i));
+  return st;
+})();
 
 describe('Today', () => {
   it('next item is Omega-3 with a Taken action; 8 left', () => {
@@ -35,14 +40,6 @@ describe('Readiness', () => {
   it('rises when midday items are logged', () => {
     const items = s.items.map(i => ([5, 6, 7].includes(i.id) ? { ...i, done: true } : i));
     expect(readiness(items).score).toBe(94);
-  });
-});
-
-describe('Health age', () => {
-  it('is 34 (4 years younger than 38) for the seeded vitals', () => {
-    const h = healthAge(s.vitals, 66);
-    expect(h.age).toBe(34);
-    expect(h.diff).toBe('4 years younger');
   });
 });
 

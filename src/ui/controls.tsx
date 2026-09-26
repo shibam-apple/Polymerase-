@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Pressable, View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
-import { ease } from '../theme/motion';
+import { ease, SNAP } from '../theme/motion';
 import { fill } from '../theme';
 
 const APressable = Animated.createAnimatedComponent(Pressable);
@@ -14,7 +14,7 @@ export function PressableScale({ scaleTo = 0.95, style, children, ...rest }: Omi
     <APressable
       {...rest}
       onPressIn={e => { s.set(withTiming(scaleTo, { duration: 90 })); rest.onPressIn?.(e); }}
-      onPressOut={e => { s.set(withSpring(1, { damping: 11, stiffness: 320 })); rest.onPressOut?.(e); }}
+      onPressOut={e => { s.set(withSpring(1, SNAP)); rest.onPressOut?.(e); }}
       style={[style, a]}
     >
       {children}
@@ -25,7 +25,7 @@ export function PressableScale({ scaleTo = 0.95, style, children, ...rest }: Omi
 /** iOS-style switch: 46×28 track, 24 knob, overshooting knob travel. */
 export function Switch({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) {
   const x = useSharedValue(on ? 18 : 0);
-  useEffect(() => { x.value = withTiming(on ? 18 : 0, { duration: 300, easing: ease.tab }); }, [on, x]);
+  useEffect(() => { x.value = withTiming(on ? 18 : 0, { duration: 200, easing: ease.tab }); }, [on, x]);
   const knob = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
   return (
     <Pressable onPress={onChange} accessibilityRole="switch" accessibilityState={{ checked: on }} accessibilityLabel={label} hitSlop={8}>
@@ -40,7 +40,7 @@ export function Switch({ on, onChange, label }: { on: boolean; onChange: () => v
 export function Bar({ frac, color, height = 6, track = fill.tertiary, width, delay = 0 }: { frac: number; color: string; height?: number; track?: string; width?: number; delay?: number }) {
   const w = useSharedValue(0);
   useEffect(() => {
-    const t = setTimeout(() => { w.value = withTiming(Math.max(0, Math.min(1, frac)), { duration: 800, easing: ease.springBar }); }, delay);
+    const t = setTimeout(() => { w.value = withTiming(Math.max(0, Math.min(1, frac)), { duration: 450, easing: ease.springBar }); }, delay);
     return () => clearTimeout(t);
   }, [frac, w, delay]);
   const a = useAnimatedStyle(() => ({ width: `${w.value * 100}%` }));

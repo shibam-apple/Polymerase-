@@ -17,7 +17,7 @@ const S = 170, R = 65;
 /** The mood check-in orb: morphs shape, colour, size and tilt as the slider moves. */
 export function MoodBlob({ mood }: { mood: number }) {
   const t = useSharedValue(mood - 1);
-  useEffect(() => { t.value = withTiming(mood - 1, { duration: 600, easing: ease.springSoft }); }, [mood, t]);
+  useEffect(() => { t.value = withTiming(mood - 1, { duration: 320, easing: ease.springSoft }); }, [mood, t]);
   const path = useDerivedValue(() => {
     const i = Math.max(0, Math.min(3.999, t.value)), a = Math.floor(i), f = i - a;
     const m = SHAPES[a].map((v, k) => v + (SHAPES[Math.min(4, a + 1)][k] - v) * f);

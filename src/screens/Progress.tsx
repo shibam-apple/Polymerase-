@@ -5,7 +5,7 @@ import Svg, { Path } from 'react-native-svg';
 import { gridModel, withWater, WEEKS } from '../state/selectors';
 import { useStore } from '../state/store';
 import { C, fill, ink, LONG_NAMES, NAMES, PILLARS, type Pillar } from '../theme';
-import { ease } from '../theme/motion';
+import { ease, SNAP } from '../theme/motion';
 import { Bar, Dot, PressableScale, Switch, useCountUp } from '../ui/controls';
 import { Breathe, ColorCell, Shimmer } from '../ui/effects';
 import { Glass } from '../ui/glass/Glass';
@@ -176,10 +176,10 @@ export function Progress({ now, visitKey }: { now: Date; visitKey: number }) {
 
 function GridCell({ color, delay, future, today, selected, label, onPress }: { color: string; delay: number; future: boolean; today: boolean; selected: boolean; label: string; onPress: () => void }) {
   const sc = useSharedValue(1);
-  useEffect(() => { sc.value = withSpring(selected ? 1.12 : 1, { damping: 10, stiffness: 260 }); }, [selected, sc]);
+  useEffect(() => { sc.value = withSpring(selected ? 1.08 : 1, SNAP); }, [selected, sc]);
   const a = useAnimatedStyle(() => ({ transform: [{ scale: sc.value }] }));
   return (
-    <Pressable onPress={onPress} disabled={future} accessibilityLabel={label} onPressIn={() => { if (!future) sc.set(withTiming(0.88, { duration: 90 })); }} onPressOut={() => { sc.set(withSpring(selected ? 1.12 : 1, { damping: 10, stiffness: 260 })); }}>
+    <Pressable onPress={onPress} disabled={future} accessibilityLabel={label} onPressIn={() => { if (!future) sc.set(withTiming(0.88, { duration: 90 })); }} onPressOut={() => { sc.set(withSpring(selected ? 1.08 : 1, SNAP)); }}>
       <Animated.View style={[{ aspectRatio: 1 }, a]}>
         <ColorCell color={color} delay={delay} style={{ flex: 1, borderRadius: 6, boxShadow: selected ? '0 0 0 2px #f5f5f7, 0 0 0 4px #1d1d1f' : future ? 'inset 0 0 0 1.5px rgba(120,120,128,.16)' : undefined }} />
         {today && !selected && <Breathe radius={6} />}
@@ -190,7 +190,7 @@ function GridCell({ color, delay, future, today, selected, label, onPress }: { c
 
 function WeekDot({ on, future, color, delay }: { on: boolean; future: boolean; color: string; delay: number }) {
   const sc = useSharedValue(on ? 1 : 0.85);
-  useEffect(() => { const t = setTimeout(() => { sc.value = withTiming(on ? 1 : 0.85, { duration: 400, easing: ease.spring }); }, delay); return () => clearTimeout(t); }, [on, delay, sc]);
+  useEffect(() => { const t = setTimeout(() => { sc.value = withTiming(on ? 1 : 0.85, { duration: 240, easing: ease.spring }); }, delay); return () => clearTimeout(t); }, [on, delay, sc]);
   const a = useAnimatedStyle(() => ({ transform: [{ scale: sc.value }] }));
   return (
     <Animated.View style={a}>
@@ -201,7 +201,7 @@ function WeekDot({ on, future, color, delay }: { on: boolean; future: boolean; c
 
 function SideChevron({ open }: { open: boolean }) {
   const r = useSharedValue(open ? 90 : 0);
-  useEffect(() => { r.value = withTiming(open ? 90 : 0, { duration: 300, easing: ease.springSoft }); }, [open, r]);
+  useEffect(() => { r.value = withTiming(open ? 90 : 0, { duration: 200, easing: ease.springSoft }); }, [open, r]);
   const st = useAnimatedStyle(() => ({ transform: [{ rotate: `${r.value}deg` }] }));
   return (
     <Animated.View style={st}>

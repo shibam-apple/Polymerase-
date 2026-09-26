@@ -104,13 +104,48 @@ These are **simulator results, not clinical validation.**
 
 ## Liquid glass across Android versions
 
-| Tier | Devices | Cards and sheets | Tab bar and + refraction |
-|---|---|---|---|
-| `live` | Android 12+ (API 31+, including Android 17), iOS, web | Real backdrop blur (`expo-blur`; RenderEffect-backed on Android), plus tint, specular edge and sheen | Skia: the wallpaper is re-rendered inside the bar through turbulence → displacement → blur |
-| `frosted` | **Android 11** and older (API ≤ 30) | No live blur, because it's software-rendered and janky there. Instead a denser frosted fill with the same specular edge and sheen | Same Skia refraction. Skia draws on its own, so it works on Android 11 |
+| Tier | Devices | How it's drawn |
+|---|---|---|
+| `liquid` | **Android 13+** (API 33+) | Native `LiquidGlassView` (`modules/liquid-glass`, Kotlin). The backdrop is recorded into a hardware `RenderNode` every frame, re-using existing display lists with no bitmap copies. A GPU `RenderEffect` chain then runs a 2 dp Gaussian frost, then an **AGSL** shader. |
+| `blur` | Android 12 (API 31–32) | The same native view with a Gaussian backdrop blur only. iOS and web use the platform blur. |
+| `frosted` | Android 11 and older | A denser frosted fill with the same edge highlights. No live effects. |
 
-The tier is chosen once, in `src/ui/glass/capabilities.ts`. Every glass surface uses `<Glass>`
-(`src/ui/glass/Glass.tsx`), and CSS `boxShadow` (RN 0.86) carries the design's inset highlights.
+What the AGSL shader does:
+- Builds a rounded-rect signed distance field, with a spherical-cap lens profile across the bevel.
+- Refracts with a small-angle Snell approximation: the displacement follows the surface slope, bending toward the centre.
+- Adds per-channel dispersion (chromatic aberration), a specular key light on the rim, a crisp 1 px edge and a Fresnel-style edge glow.
+- Cost per pixel: 3 backdrop samples plus 3 distance evaluations.
+
+Backdrops:
+- Cards refract the wallpaper.
+- The tab bar and sheets refract the wallpaper *and* the content scrolling under them.
+- A glass view never refracts a backdrop that contains it.
+
+## Recovery and health age
+
+- **Recovery (0–100)** (`src/health/recovery.ts`)
+  - Built from your morning measurements, compared with *your own* baseline:
+    - HRV, 40 points: ln RMSSD against the mean ± ½ SD of up to 60 prior mornings.
+    - Resting HR, 20 points: z-score against 30 days.
+    - Sleep, 25 points: hours against your target, scaled by the quality you rate.
+    - Meds & habits, 5 points.
+  - Parts with no data are left out rather than scored as bad.
+  - It says **"Learning"** until 3 mornings exist.
+  - **Tomorrow's estimate** is exponentially weighted persistence (today → recent average) with a ±1 SD band of past day-to-day changes.
+- **Health age** (`src/health/healthAge.ts`)
+  - Your age, plus or minus years for:
+    - resting HR band
+    - blood pressure category (ACC/AHA 2017)
+    - BMI band
+    - 7-day sleep
+    - HRV against an approximate age trend
+  - Each adjustment is listed. It's indicative, not validated.
+- **Measurement**
+  - Camera permission is asked with Android's own dialog.
+  - There is **no simulated data on the phone**.
+  - The 60 s timer only counts while your fingertip covers the lens.
+  - A reading is saved only with at least 40 clean beats and non-poor quality.
+  - A status line shows exactly what the camera is doing, with *Share diagnostics*.
 
 ## Install the test build on your phone
 

@@ -1,4 +1,3 @@
-import { BlurView } from 'expo-blur';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -6,13 +5,13 @@ import Animated, { FadeIn, runOnJS, useAnimatedStyle, useSharedValue, withSequen
 import Svg, { Path } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { longDate } from '../state/clock';
-import { healthAge, nextItem, parts, progress, readiness, withWater } from '../state/selectors';
+import { deriveHealth } from '../state/health';
+import { nextItem, parts, progress, readiness, withWater } from '../state/selectors';
 import { useStore } from '../state/store';
 import type { Item } from '../state/types';
 import { C, ink, isNight } from '../theme';
-import { ease } from '../theme/motion';
-import { Glass } from '../ui/glass/Glass';
-import { GLASS_TIER } from '../ui/glass/capabilities';
+import { ease, SNAP } from '../theme/motion';
+import { Glass, GlassFill } from '../ui/glass/Glass';
 import { Hairline, PressableScale } from '../ui/controls';
 import { T } from '../ui/Text';
 
@@ -24,12 +23,15 @@ export function Today({ now, hour, onDetails }: { now: Date; hour: number; onDet
   const { s, a } = useStore();
   const items = withWater(s.items, s.water);
   const nx = nextItem(items, s.snoozed), { left } = progress(items);
-  const r = readiness(items), age = healthAge(s.vitals, r.score);
+  const r = readiness(items), d = deriveHealth(s, now);
   const [open, setOpen] = useState<Record<number, boolean>>({ 0: false, 1: true, 2: true });
   const night = isNight(hour);
 
   const scores = [
-    { label: 'Readiness', v: r.score }, { label: 'Sleep', v: 96 }, { label: 'Mood', v: (r.moodIdx + 1) * 20 }, { label: 'Health age', v: age.age },
+    { label: 'Recovery', v: d.recovery.score ?? '–' },
+    { label: 'Sleep', v: d.sleepToday ? `${Math.round(d.sleepToday.hours * 10) / 10}h` : '–' },
+    { label: 'Mood', v: s.items.some(i => i.p === 'mind' && i.done) ? (r.moodIdx + 1) * 20 : '–' },
+    { label: 'Health age', v: d.age.age ?? '–' },
   ];
 
   return (
@@ -76,8 +78,7 @@ export function Today({ now, hour, onDetails }: { now: Date; hour: number; onDet
       {/* Frosted sheet behind the day's lists, so the gaps between cards are blurred too. */}
       <View style={{ marginTop: 18, paddingTop: 2, paddingHorizontal: 8, paddingBottom: 12 }}>
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 34, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,.35)', boxShadow: 'inset 0 1px 1px rgba(255,255,255,.55)' }]}>
-          {GLASS_TIER === 'live' && <BlurView intensity={36} tint="light" blurMethod="dimezisBlurViewSdk31Plus" style={StyleSheet.absoluteFill} />}
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: `rgba(255,255,255,${GLASS_TIER === 'live' ? (night ? 0.1 : 0.18) : night ? 0.16 : 0.3})` }]} />
+          <GlassFill radius={34} tint={night ? [0.1, 0.1] : [0.18, 0.18]} blur={36} lens={0.35} />
         </View>
         {parts(items).map(p => {
           const isOpen = p.allDone ? !!open[p.index] : open[p.index] !== false;
@@ -112,7 +113,7 @@ export function Today({ now, hour, onDetails }: { now: Date; hour: number; onDet
                 <Glass radius={20} innerStyle={{ overflow: 'hidden', borderRadius: 20 }}>
                   {p.items.map((it, i) => (
                     <SwipeRow key={it.id} it={it} last={i === p.items.length - 1} popping={s.pop === it.id}
-                      onComplete={() => a.complete(it)} onOpen={() => a.openSheet('item', { itemId: it.id })}
+                      onComplete={() => a.complete(it)} onOpen={() => (it.id === 1 ? a.openSheet('sleep') : a.openSheet('item', { itemId: it.id }))}
                       onWater={() => a.addWater()} onSwiped={() => !s.swiped && a.patch({ swiped: true })} />
                   ))}
                 </Glass>
@@ -162,7 +163,7 @@ function SwipeRow({ it, last, popping, onComplete, onOpen, onWater, onSwiped }: 
     })
     .onEnd(() => {
       const go = tx.value > THRESH;
-      tx.value = withTiming(0, { duration: 450, easing: ease.springSoft });
+      tx.value = withTiming(0, { duration: 260, easing: ease.springSoft });
       runOnJS(onSwiped)();
       if (go) runOnJS(onComplete)();
       runOnJS(setPast)(false);
@@ -170,15 +171,15 @@ function SwipeRow({ it, last, popping, onComplete, onOpen, onWater, onSwiped }: 
   const row = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }], backgroundColor: tx.value > 4 ? 'rgba(255,255,255,.97)' : 'transparent' }));
   const reveal = useAnimatedStyle(() => ({ opacity: tx.value > 4 ? 1 : 0 }));
   const revealScale = useSharedValue(0.8);
-  useEffect(() => { revealScale.value = withSpring(past ? 1.2 : 0.8, { damping: 9, stiffness: 300 }); }, [past, revealScale]);
+  useEffect(() => { revealScale.value = withSpring(past ? 1.08 : 0.9, SNAP); }, [past, revealScale]);
   const revealIcon = useAnimatedStyle(() => ({ transform: [{ scale: revealScale.value }] }));
 
   const scale = useSharedValue(1);
   const ring = useSharedValue(0);
   useEffect(() => {
     if (!popping) return;
-    scale.value = withSequence(withTiming(1.25, { duration: 140 }), withSpring(1, { damping: 7, stiffness: 260 }));
-    if (it.done) { ring.value = 0; ring.value = withTiming(1, { duration: 550 }); }
+    scale.value = withSequence(withTiming(1.1, { duration: 90 }), withSpring(1, SNAP));
+    if (it.done) { ring.value = 0; ring.value = withTiming(1, { duration: 380 }); }
   }, [popping, it.done, scale, ring]);
   const check = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   const ripple = useAnimatedStyle(() => ({ opacity: ring.value > 0 && ring.value < 1 ? 0.9 * (1 - ring.value) : 0, transform: [{ scale: 1 + 1.1 * ring.value }] }));

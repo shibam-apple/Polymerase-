@@ -1,3 +1,4 @@
+import { SNAP } from '../theme/motion';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
@@ -14,7 +15,7 @@ export function Slider({ value, min, max, step, onChange, neutral, label }: { va
   const [w, setW] = useState(0);
   const x = useSharedValue(0);
   const frac = (value - min) / (max - min);
-  useEffect(() => { if (w) x.value = withSpring(frac * (w - 28), { damping: 18, stiffness: 300 }); }, [frac, w, x]);
+  useEffect(() => { if (w) x.value = withSpring(frac * (w - 28), SNAP); }, [frac, w, x]);
   const emit = (px: number) => {
     const f = Math.max(0, Math.min(1, (px - 14) / Math.max(1, w - 28)));
     const v = Math.round((min + f * (max - min)) / step) * step;

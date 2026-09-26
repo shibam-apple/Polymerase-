@@ -48,7 +48,7 @@ export function Report({ now }: { now: Date }) {
       {s.repPhase === 'gen' && (
         <Animated.View entering={FadeIn.duration(300)}>
           <Glass radius={26} tint={[0.66, 0.34]} blur={30} border={0.8} style={{ marginTop: 14 }} innerStyle={{ paddingTop: 28, paddingHorizontal: 18, paddingBottom: 22, alignItems: 'center', gap: 18 }}>
-            <Animated.View key={cur.key + (allDone ? '-d' : '')} entering={ZoomIn.duration(450).easing(ease.springSoft)}>
+            <Animated.View key={cur.key + (allDone ? '-d' : '')} entering={ZoomIn.duration(280).easing(ease.springSoft)}>
               <ReportOrb pillar={cur.key} color={cur.color} mode={allDone ? 'done' : 'work'} size={132} />
             </Animated.View>
             <View style={{ alignItems: 'center', gap: 12, width: '100%' }}>
@@ -70,13 +70,13 @@ export function Report({ now }: { now: Date }) {
       )}
 
       {s.repPhase === 'ready' && (
-        <Animated.View entering={FadeInDown.duration(450).easing(ease.springSoft)} style={{ marginTop: 14, borderRadius: 18, backgroundColor: '#fff', padding: 18, gap: 14, boxShadow: '0 12px 32px rgba(0,0,0,.07), 0 0 0 .5px rgba(0,0,0,.05)' }}>
+        <Animated.View entering={FadeInDown.duration(300).easing(ease.springSoft)} style={{ marginTop: 14, borderRadius: 18, backgroundColor: '#fff', padding: 18, gap: 14, boxShadow: '0 12px 32px rgba(0,0,0,.07), 0 0 0 .5px rgba(0,0,0,.05)' }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <T size={15} weight="700" color={ink[1]}>Alex Morgan</T>
             <T size={12} color={ink[2]}>Last 30 days</T>
           </View>
           {sections.map((sec, si) => (
-            <Animated.View key={sec.key} entering={FadeInDown.delay(si * 90 + 120).duration(450).easing(ease.springSoft)} style={{ gap: 6 }}>
+            <Animated.View key={sec.key} entering={FadeInDown.delay(si * 60 + 80).duration(300).easing(ease.springSoft)} style={{ gap: 6 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Dot size={8} color={sec.color} /><T size={13} weight="600" color={ink[1]}>{sec.name}</T></View>
                 <T size={13} weight="600" color={ink[1]}>{sec.value}</T>

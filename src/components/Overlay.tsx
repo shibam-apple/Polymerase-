@@ -1,11 +1,10 @@
-import { BlurView } from 'expo-blur';
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { FadeIn, FadeInDown, FadeOut, FadeOutDown, runOnJS, SlideInDown, SlideOutDown, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-import { ease } from '../theme/motion';
+import { ease, SNAP } from '../theme/motion';
 import { DAY_INK } from '../theme';
-import { GLASS_TIER } from '../ui/glass/capabilities';
+import { GlassFill } from '../ui/glass/Glass';
 import { InkProvider, T } from '../ui/Text';
 import { PressableScale } from '../ui/controls';
 
@@ -16,7 +15,7 @@ export function Sheet({ onClose, bottom, children }: { onClose: () => void; bott
     .onChange(e => { dy.value = Math.max(0, dy.value + e.changeY); })
     .onEnd(e => {
       if (dy.value > 90 || e.velocityY > 800) runOnJS(onClose)();
-      else dy.value = withSpring(0, { damping: 16, stiffness: 220 });
+      else dy.value = withSpring(0, SNAP);
     });
   const a = useAnimatedStyle(() => ({ transform: [{ translateY: dy.value }] }));
   return (
@@ -26,13 +25,13 @@ export function Sheet({ onClose, bottom, children }: { onClose: () => void; bott
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
       </Animated.View>
       <Animated.View
-        entering={SlideInDown.duration(450).easing(ease.sheet)}
+        entering={SlideInDown.duration(300).easing(ease.sheet)}
         exiting={SlideOutDown.duration(260)}
         style={{ position: 'absolute', zIndex: 41, left: 8, right: 8, bottom: 8 + bottom, alignItems: 'center' }}
       >
       <Animated.View style={[{ width: '100%', maxWidth: 520, borderRadius: 34, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.18)' }, a]}>
-        {GLASS_TIER === 'live' && <BlurView intensity={80} tint="extraLight" blurMethod="dimezisBlurViewSdk31Plus" style={StyleSheet.absoluteFill} />}
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: GLASS_TIER === 'live' ? 'rgba(250,250,252,.82)' : 'rgba(250,250,252,.97)', borderRadius: 34, borderWidth: 1, borderColor: 'rgba(255,255,255,.9)' }]} />
+        <GlassFill radius={34} tint={[0.9, 0.84]} backdrop="content" lens={0.6} blur={50} />
+        <View style={[StyleSheet.absoluteFill, { borderRadius: 34, borderWidth: 1, borderColor: 'rgba(255,255,255,.9)' }]} />
         <GestureDetector gesture={drag}>
           <View style={{ paddingTop: 10, paddingBottom: 12, alignItems: 'center' }}>
             <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: 'rgba(60,60,67,.22)' }} />
@@ -50,7 +49,7 @@ export function Sheet({ onClose, bottom, children }: { onClose: () => void; bott
 export function Toast({ text, onUndo, bottom }: { text: string; onUndo?: () => void; bottom: number }) {
   return (
     <Animated.View
-      entering={FadeInDown.duration(350).easing(ease.springSoft)}
+      entering={FadeInDown.duration(220).easing(ease.springSoft)}
       exiting={FadeOutDown.duration(200)}
       style={{ position: 'absolute', bottom: 104 + bottom, alignSelf: 'center', zIndex: 30, flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10, paddingRight: onUndo ? 10 : 18, paddingLeft: 18, borderRadius: 22, backgroundColor: 'rgba(29,29,31,.86)', boxShadow: '0 10px 30px rgba(0,0,0,.2)' }}
       accessibilityLiveRegion="polite"
