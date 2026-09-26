@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { FadeIn, FadeInDown, FadeOut, FadeOutDown, runOnJS, SlideInDown, SlideOutDown, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { ease, SNAP } from '../theme/motion';
 import { DAY_INK } from '../theme';
-import { GlassFill } from '../ui/glass/Glass';
+import { BlurView } from 'expo-blur';
 import { InkProvider, T } from '../ui/Text';
 import { PressableScale } from '../ui/controls';
 
@@ -30,8 +30,10 @@ export function Sheet({ onClose, bottom, children }: { onClose: () => void; bott
         style={{ position: 'absolute', zIndex: 41, left: 8, right: 8, bottom: 8 + bottom, alignItems: 'center' }}
       >
       <Animated.View style={[{ width: '100%', maxWidth: 520, borderRadius: 34, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.18)' }, a]}>
-        <GlassFill radius={34} tint={[0.9, 0.84]} backdrop="content" lens={0.6} blur={50} />
-        <View style={[StyleSheet.absoluteFill, { borderRadius: 34, borderWidth: 1, borderColor: 'rgba(255,255,255,.9)' }]} />
+        {/* A calm, near-opaque panel: sheets hold forms, so no refraction behind the text. */}
+        {Platform.OS !== 'android' && <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: Platform.OS === 'android' ? 'rgba(248,248,250,.98)' : 'rgba(248,248,250,.86)' }]} />
+        <View style={[StyleSheet.absoluteFill, { borderRadius: 34, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(60,60,67,.12)' }]} />
         <GestureDetector gesture={drag}>
           <View style={{ paddingTop: 10, paddingBottom: 12, alignItems: 'center' }}>
             <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: 'rgba(60,60,67,.22)' }} />

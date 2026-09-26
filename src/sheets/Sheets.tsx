@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn, useAnimatedProps, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, ZoomIn } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { fmtVital, gridModel, itemHistory, readiness, vitalFields, vitalNote, withWater } from '../state/selectors';
-import { fmtHours, sleepHours } from '../state/health';
+import { deriveHealth, fmtHours, sleepHours } from '../state/health';
 import { dayKey } from '../state/seed';
 import { useStore } from '../state/store';
 import { C, fill, ink, LONG_NAMES, MOODS, VMETA } from '../theme';
 import { ease, SNAP } from '../theme/motion';
 import { Dot, PressableScale } from '../ui/controls';
+import { Icon } from '../ui/icons';
 import { SleepDial, SleepIcon } from '../ui/SleepDial';
 import { Slider } from '../ui/Slider';
 import { T } from '../ui/Text';
@@ -319,6 +320,63 @@ export function SleepSheet() {
         <T size={17} weight="600" color="#fff">Save</T>
       </PressableScale>
     </View>
+  );
+}
+
+/** Readiness in plain words: what shaped it, tomorrow's estimate, and every active prediction with its evidence. */
+export function InsightsSheet({ now }: { now: Date }) {
+  const { s } = useStore();
+  const d = deriveHealth(s, now), rec = d.recovery;
+  const { height } = useWindowDimensions();
+  const tone = (l: 'alert' | 'watch') => (l === 'alert' ? '#ff453a' : '#ff9f0a');
+  return (
+    <ScrollView style={{ maxHeight: Math.round(height * 0.72) }} contentContainerStyle={{ gap: 14 }} showsVerticalScrollIndicator={false}>
+      <View>
+        <T size={21} weight="700" track={-0.02}>{rec.score != null ? `Readiness ${rec.score} · ${rec.label}` : 'Readiness'}</T>
+        <T size={13} tone="ink2" lh={1.4}>
+          {rec.score == null ? 'Measure your heart this morning to see today’s readiness.'
+            : rec.status === 'provisional' ? 'Provisional: blended with typical values until a week of your own mornings.' : 'Compared with your own recent mornings.'}
+        </T>
+      </View>
+      {rec.parts.length > 0 && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {rec.parts.map(p => (
+            <View key={p.key} style={{ width: '48.5%', padding: 10, borderRadius: 14, backgroundColor: fill.quaternary, gap: 4 }}>
+              <T size={11} weight="600" tone="ink2">{{ hrv: 'HRV', rhr: 'Resting HR', sleep: 'Sleep', adherence: 'Habits' }[p.key]}</T>
+              <View style={{ height: 4, borderRadius: 2, backgroundColor: fill.tertiary, overflow: 'hidden' }}>
+                <View style={{ width: `${(p.pts / p.max) * 100}%`, height: 4, borderRadius: 2, backgroundColor: p.pts / p.max >= 0.7 ? '#34c759' : p.pts / p.max >= 0.45 ? '#ff9f0a' : '#ff453a' }} />
+              </View>
+              <T size={11} tone="ink2" numberOfLines={2}>{p.note}</T>
+            </View>
+          ))}
+        </View>
+      )}
+      {d.forecast && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14, backgroundColor: fill.quaternary }}>
+          <Icon name="sun" size={18} color="#ff9f0a" />
+          <T size={14} style={{ flex: 1 }}>Tomorrow, about <T size={14} weight="700">{d.forecast.score}</T> <T size={12} tone="ink3">({d.forecast.lo}–{d.forecast.hi})</T></T>
+          {d.sleepBoost ? <T size={12} tone="ink2">+{d.sleepBoost} with {s.profile.sleepTargetH} h sleep</T> : null}
+        </View>
+      )}
+      {d.predictions.length === 0 ? (
+        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center', padding: 12, borderRadius: 14, backgroundColor: 'rgba(52,199,89,.1)' }}>
+          <Icon name="spark" size={18} color="#248a3d" />
+          <T size={14} style={{ flex: 1 }} lh={1.35}>No warning signs. Strain, overreaching, sleep debt and blood pressure are all checked every day.</T>
+        </View>
+      ) : d.predictions.map(p => (
+        <View key={p.id} style={{ gap: 6, padding: 14, borderRadius: 16, backgroundColor: fill.quaternary }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Icon name="alert" size={18} color={tone(p.level)} />
+            <T size={16} weight="700" style={{ flex: 1 }}>{p.title}</T>
+            <T size={11} weight="600" tone="ink3">{p.confidence} confidence</T>
+          </View>
+          <T size={13} lh={1.4} color={ink.body}>{p.detail}</T>
+          {p.evidence.map(e => <T key={e} size={12} tone="ink2">• {e}</T>)}
+          <T size={13} weight="600" color="#248a3d" lh={1.35}>{p.helps}</T>
+        </View>
+      ))}
+      <T size={11} tone="ink3" lh={1.4}>Indicative signals from your own trends, not a diagnosis. If you feel unwell or a warning persists, talk to a doctor.</T>
+    </ScrollView>
   );
 }
 

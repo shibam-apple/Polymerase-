@@ -24,7 +24,7 @@ const Sun = ({ x, y, c }: { x: number; y: number; c: string }) => (
  * 24 h sleep dial, after Apple Health's sleep schedule: drag the moon (bedtime) or the sun (wake-up),
  * or drag the arc to move the whole night. Snaps to 5 minutes with a light tick.
  */
-export function SleepDial({ bed, wake, onChange, size = 280, color = C.sleep }: { bed: string; wake: string; onChange: (bed: string, wake: string) => void; size?: number; color?: string }) {
+export function SleepDial({ bed, wake, onChange, size = 280, color = C.sleep, readOnly = false }: { bed: string; wake: string; onChange?: (bed: string, wake: string) => void; size?: number; color?: string; readOnly?: boolean }) {
   const cx = size / 2, cy = size / 2, stroke = 34, r = size / 2 - stroke / 2 - 2;
   const b = toMin(bed), w = toMin(wake);
   const span = (w - b + DAY) % DAY || DAY;
@@ -42,7 +42,7 @@ export function SleepDial({ bed, wake, onChange, size = 280, color = C.sleep }: 
     if (key === sent.value || (nb === cur.value.b && nw === cur.value.w)) return;
     sent.value = key;
     Haptics.selectionAsync().catch(() => {});
-    onChange(toHHMM(nb), toHHMM(nw));
+    onChange?.(toHHMM(nb), toHHMM(nw));
   };
   const pan = Gesture.Pan().minDistance(0)
     .onBegin(e => {
@@ -69,8 +69,7 @@ export function SleepDial({ bed, wake, onChange, size = 280, color = C.sleep }: 
     .runOnJS(true);
 
   const hours = span / 60;
-  return (
-    <GestureDetector gesture={pan}>
+  const dial = (
       <View collapsable={false} style={{ width: size, height: size }} accessible accessibilityLabel={`Sleep from ${bed} to ${wake}`}>
         <Svg width={size} height={size}>
           <Circle cx={cx} cy={cy} r={r} stroke="rgba(120,120,128,.12)" strokeWidth={stroke} fill="none" />
@@ -79,7 +78,7 @@ export function SleepDial({ bed, wake, onChange, size = 280, color = C.sleep }: 
             const o = minToPoint(i * 30, cx, cy, r - stroke / 2 - 6), n = minToPoint(i * 30, cx, cy, r - stroke / 2 - (major ? 10 : hour ? 9 : 8));
             return <Line key={i} x1={o.x} y1={o.y} x2={n.x} y2={n.y} stroke={major ? ink[2] : 'rgba(60,60,67,.25)'} strokeWidth={major ? 1.6 : 1} strokeLinecap="round" />;
           })}
-          {[[0, '12AM'], [360, '6AM'], [720, '12PM'], [1080, '6PM']].map(([m, l]) => {
+          {size >= 240 && [[0, '12AM'], [360, '6AM'], [720, '12PM'], [1080, '6PM']].map(([m, l]) => {
             const p = minToPoint(m as number, cx, cy, r - stroke / 2 - 31);
             return <SvgText fontFamily={SVG_FONT} key={l} x={p.x} y={p.y + 4} fontSize={10} fontWeight="600" fill={ink[3]} textAnchor="middle">{l}</SvgText>;
           })}
@@ -88,11 +87,11 @@ export function SleepDial({ bed, wake, onChange, size = 280, color = C.sleep }: 
           <Moon x={pb.x} y={pb.y} c={color} />
           <Circle cx={pw.x} cy={pw.y} r={stroke / 2 - 4} fill="#fff" />
           <Sun x={pw.x} y={pw.y} c="#ff9f0a" />
-          <SvgText fontFamily={SVG_FONT} x={cx} y={cy + 9} fontSize={26} fontWeight="700" fill={ink[1]} textAnchor="middle">{`${Math.floor(hours)}h ${String(Math.round((hours % 1) * 60)).padStart(2, '0')}m`}</SvgText>
+          <SvgText fontFamily={SVG_FONT} x={cx} y={cy + size * 0.032} fontSize={Math.round(size * 0.093)} fontWeight="700" fill={ink[1]} textAnchor="middle">{`${Math.floor(hours)}h ${String(Math.round((hours % 1) * 60)).padStart(2, '0')}m`}</SvgText>
         </Svg>
       </View>
-    </GestureDetector>
   );
+  return readOnly ? dial : <GestureDetector gesture={pan}>{dial}</GestureDetector>;
 }
 
 export const SleepIcon = { Moon, Sun };

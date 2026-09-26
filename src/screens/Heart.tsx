@@ -11,7 +11,8 @@ import { accent, fill, ink } from '../theme';
 import { PressableScale } from '../ui/controls';
 import { Glass } from '../ui/glass/Glass';
 import { T } from '../ui/Text';
-import { DayChart, dayLabel, Poincare, Tachogram, Waveform, type DayPoint } from '../viz/charts';
+import { Icon, type IconName } from '../ui/icons';
+import { DayBars, DayChart, dayLabel, Poincare, PulseLine, Tachogram, Waveform, type DayPoint } from '../viz/charts';
 
 function Segmented<K extends string>({ options, value, onChange }: { options: [K, string][]; value: K; onChange: (k: K) => void }) {
   return (
@@ -32,101 +33,114 @@ function shareSession(sess: NonNullable<ReturnType<typeof useHeart>['lastSession
   Share.share({ title: 'Daily PPG session', message: body }).catch(() => {});
 }
 
-const Metric = ({ label, value, unit, big }: { label: string; value: string; unit?: string; big?: boolean }) => (
+const GOOD = '#34c759', WARN = '#ff9f0a', HIGH = '#0a84ff';
+type State = { word: string; c: string } | null;
+
+/** A big number with its unit and a one-word state underneath. */
+const Metric = ({ label, value, unit, state, big }: { label: string; value: string; unit?: string; state?: State; big?: boolean }) => (
   <View style={{ flex: 1, gap: 2 }}>
     <T size={big ? 26 : 17} weight={big ? '700' : '600'} track={-0.02} tabular>{value}{unit ? <T size={12} weight="500" tone="ink3"> {unit}</T> : null}</T>
     <T size={12} tone="ink2">{label}</T>
+    {state ? <T size={11} weight="600" color={state.c}>{state.word}</T> : null}
   </View>
 );
 
-type Chip = { t: string; c: string; bg: string };
-const CHIP = {
-  normal: { t: 'Normal', c: '#248a3d', bg: 'rgba(52,199,89,.14)' },
-  low: { t: 'Below normal', c: '#c25e00', bg: 'rgba(255,149,0,.14)' },
-  high: { t: 'Above normal', c: '#248a3d', bg: 'rgba(52,199,89,.14)' },
-} satisfies Record<string, Chip>;
+const avg = (v: number[]) => (v.length ? Math.round(mean(v)) : null);
+const timeOf = (t: number) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const dayWord = (t: number, now: Date) => { const d = new Date(t); return d.toDateString() === now.toDateString() ? 'Today' : `${d.getDate()}/${d.getMonth() + 1}`; };
 
-/** A trend card: the selected (or latest) value as a big number, a status chip, and a clean day chart. */
-function TrendCard({ title, unit, points, color, band, chip, note, width }: {
-  title: string; unit: string; points: DayPoint[]; color: string; band?: [number, number] | null; chip?: Chip | null; note?: string; width: number;
+/**
+ * A summary like a watch widget: icon + title + when, one huge number, then weekly and monthly
+ * averages. Below it, day bars with an optional "your normal" band; tap a bar to read that day.
+ */
+function MetricCard({ icon, color, title, unit, latest, when, week, month, chip, points, band, colorFor, caption, width, line }: {
+  icon: IconName; color: string; title: string; unit: string; latest: number | null; when: string; week: number | null; month: number | null; chip?: State;
+  points: DayPoint[]; band?: [number, number] | null; colorFor?: (v: number) => string; caption: string; width: number;
+  /** A line scaled to the data instead of bars from zero (for values that only move a few %, like resting HR). */
+  line?: boolean;
 }) {
   const [sel, setSel] = useState<number | null>(null);
-  const i = sel ?? points.length - 1, p = points[i];
-  const avg = Math.round(mean(points.map(x => x.v)));
+  const p = sel != null ? points[sel] : null;
   return (
-    <Glass radius={24} style={{ marginTop: 10 }} innerStyle={{ padding: 16, gap: 4 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <T size={14} weight="600" color={color}>{title}</T>
-        {sel == null && chip ? (
-          <View style={{ paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10, backgroundColor: chip.bg }}><T size={12} weight="600" color={chip.c}>{chip.t}</T></View>
-        ) : <T size={12} tone="ink3" tabular>avg {avg} {unit}</T>}
+    <Glass radius={24} style={{ marginTop: 10 }} innerStyle={{ padding: 16, gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Icon name={icon} size={18} color={color} />
+        <T size={15} weight="600" color={color} style={{ flex: 1 }}>{title}</T>
+        {chip && !p ? <View style={{ paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10, backgroundColor: `${chip.c}22` }}><T size={12} weight="600" color={chip.c}>{chip.word}</T></View> : null}
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-        <T size={34} weight="700" track={-0.035} tabular>{Math.round(p.v)}</T>
-        <T size={14} weight="500" tone="ink3">{unit}</T>
-        <T size={13} tone="ink2" style={{ marginLeft: 'auto' }}>{sel == null ? 'Latest morning' : dayLabel(p.date)}</T>
+      <View>
+        <T size={13} tone="ink2">{p ? dayLabel(p.date) : when}</T>
+        <T size={44} weight="700" track={-0.04} lh={1.1} tabular>{p ? Math.round(p.v) : latest ?? '–'}<T size={16} weight="600" tone="ink3" track={0}> {unit}</T></T>
       </View>
-      <View style={{ marginTop: 6 }}>
-        <DayChart points={points} color={color} width={width} band={band} selected={sel} onSelect={setSel} />
+      <View style={{ flexDirection: 'row', paddingTop: 10, borderTopWidth: 0.5, borderTopColor: 'rgba(60,60,67,.14)' }}>
+        <View style={{ flex: 1 }}><T size={12} tone="ink2">Weekly average</T><T size={22} weight="700" tabular>{week ?? '–'}<T size={12} tone="ink3"> {unit}</T></T></View>
+        <View style={{ flex: 1 }}><T size={12} tone="ink2">Monthly average</T><T size={22} weight="700" tabular>{month ?? '–'}<T size={12} tone="ink3"> {unit}</T></T></View>
       </View>
-      {note ? <T size={13} tone="ink2" lh={1.4} style={{ marginTop: 6 }}>{note}</T> : null}
+      {points.length >= 2 ? (
+        <>
+          {line
+            ? <DayChart points={points} width={width} color={color} band={band} selected={sel} onSelect={setSel} />
+            : <DayBars points={points} width={width} band={band} color={color} colorFor={colorFor} selected={sel} onSelect={setSel} />}
+          <T size={12} tone="ink2" lh={1.35}>{caption}</T>
+        </>
+      ) : (
+        <T size={12} tone="ink2" lh={1.35}>Bars appear after mornings on two different days. Measure at the same time each morning, before coffee.</T>
+      )}
     </Glass>
   );
 }
 
 /**
- * Heart trends: HRV and resting HR per morning (with the personal normal band the recovery score
- * uses), then the latest session: three numbers up front, the technical detail behind a disclosure.
+ * Heart: HR and HRV as easy summaries and day bars, then the latest session — its pulse over the
+ * minute and three numbers up front, with the technical detail behind "Expert view".
  */
-export function Heart({ onBack }: { onBack: () => void }) {
+export function Heart({ onBack, backLabel = 'Details' }: { onBack: () => void; backLabel?: string }) {
   const { s } = useStore();
   const h = useHeart();
+  const now = new Date();
   const [range, setRange] = useState<'week' | 'month'>('week');
-  const [more, setMore] = useState(false);
+  const [expert, setExpert] = useState(false);
   const [w, setW] = useState(0);
-  // One morning value per day (the recovery algorithm's inputs), so trends match the scores.
+  // One morning value per day (the readiness inputs), so trends match the scores.
   const d = deriveHealth(s);
-  const days = d.days.filter(x => x.rhr != null).slice(range === 'week' ? -7 : -30);
+  const all = d.days.filter(x => x.rhr != null);
+  const days = all.slice(range === 'week' ? -7 : -30);
   const hrPts: DayPoint[] = days.map(x => ({ date: x.date, v: x.rhr! }));
   const rmPts: DayPoint[] = days.filter(x => x.lnRmssd != null).map(x => ({ date: x.date, v: Math.round(Math.exp(x.lnRmssd!)) }));
+  const rmAll = all.filter(x => x.lnRmssd != null).map(x => Math.exp(x.lnRmssd!));
   const band = d.recovery.band;
-  const latest = d.latestHeart;
-  const hrvKey = !latest || !band ? null : latest.rmssd < band[0] ? 'low' : latest.rmssd > band[1] ? 'high' : 'normal';
-  const hrvNote = hrvKey === 'low' ? 'Lower than your normal. Often follows short sleep, stress, illness or hard training: take it easier today.'
-    : hrvKey === 'high' ? 'Higher than your normal: usually a sign you’re well recovered.'
-    : hrvKey === 'normal' ? 'In your normal range: recovery looks typical for you.'
-    : `Your normal range appears after ${Math.max(0, 3 - d.recovery.baselineDays)} more morning${3 - d.recovery.baselineDays === 1 ? '' : 's'}.`;
+  const last = d.latestHeart;
+  const hrvColor = (v: number) => (!band ? '#8e6cff' : v < band[0] ? WARN : v > band[1] ? HIGH : GOOD);
+  const hrvChip: State = last && band ? (last.rmssd < band[0] ? { word: 'Below normal', c: WARN } : last.rmssd > band[1] ? { word: 'Above normal', c: HIGH } : { word: 'Normal', c: GOOD }) : null;
 
   const L = h.live, measuring = L.phase === 'measuring';
   const session = L.ibis.length >= 3 ? hrvFromIbis(L.ibis.map(ms => ({ ms, valid: true }))) : null;
   const inner = Math.max(0, w - 32);
-  const qualityNote = L.quality === 'good' ? 'Clean signal' : L.quality === 'fair' ? 'Usable signal, some noise' : L.quality === 'poor' ? 'Noisy signal: keep still, press lightly' : '';
+  const qualityNote = L.quality === 'good' ? 'Clean signal' : L.quality === 'fair' ? 'Usable signal' : L.quality === 'poor' ? 'Noisy: keep still' : '';
+  const sHrv = session && isFinite(session.rmssd) ? Math.round(session.rmssd) : null;
+  const sHrvState: State = sHrv != null && band ? (sHrv < band[0] ? { word: 'Below your normal', c: WARN } : sHrv > band[1] ? { word: 'Above your normal', c: HIGH } : { word: 'Your normal', c: GOOD }) : null;
+  const br = L.respRate;
+  const brState: State = br != null ? (br >= 10 && br <= 20 ? { word: 'Typical at rest', c: GOOD } : { word: br < 10 ? 'Slow' : 'Fast', c: WARN }) : null;
 
   return (
     <View onLayout={e => setW(e.nativeEvent.layout.width)}>
-      <PressableScale onPress={onBack} accessibilityLabel="Back to Details" style={{ flexDirection: 'row', alignItems: 'center', gap: 2, alignSelf: 'flex-start', paddingVertical: 6 }}>
+      <PressableScale onPress={onBack} accessibilityLabel={`Back to ${backLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 2, alignSelf: 'flex-start', paddingVertical: 6 }}>
         <Svg width={18} height={18} viewBox="0 0 24 24"><Path d="m15 18-6-6 6-6" fill="none" stroke={accent.tab} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" /></Svg>
-        <T size={16} weight="500" color={accent.tab}>Details</T>
+        <T size={16} weight="500" color={accent.tab}>{backLabel}</T>
       </PressableScale>
       <View style={{ paddingHorizontal: 4 }}>
-        <T size={13} weight="500" tone="ink2">Heart rate · HRV</T>
+        <T size={13} weight="500" tone="ink2">Heart rate · HRV · Breathing</T>
         <T size={32} weight="700" track={-0.025} lh={1.15} accessibilityRole="header">Heart</T>
       </View>
 
       <View style={{ marginTop: 14 }}><Segmented options={[['week', 'Week'], ['month', 'Month']]} value={range} onChange={setRange} /></View>
 
-      {rmPts.length < 2 ? (
-        <Glass radius={24} style={{ marginTop: 10 }} innerStyle={{ padding: 16, gap: 6 }}>
-          <T size={15} weight="600">{latest ? `${latest.hr} bpm · HRV ${latest.rmssd} ms` : 'No measurements yet'}</T>
-          <T size={13} tone="ink2" lh={1.4}>Your trend appears after measurements on two different mornings. Measure at the same time each morning, before coffee, for the clearest picture.</T>
-        </Glass>
-      ) : (
-        <>
-          <TrendCard title="HRV" unit="ms" points={rmPts} color="#7c5cff" band={band} chip={hrvKey ? CHIP[hrvKey] : null} note={hrvNote} width={inner} />
-          <TrendCard title="Resting heart rate" unit="bpm" points={hrPts} color="#ff6b5a" width={inner} />
-          <T size={11} tone="ink3" lh={1.4} style={{ paddingTop: 8, paddingHorizontal: 16 }}>Tap or drag a chart to see a day. HRV here is RMSSD from your first measurement each morning; “your normal” is the mean ± ½ SD of your previous mornings.</T>
-        </>
-      )}
+      <MetricCard icon="heart" color="#ff375f" title="Resting heart rate" unit="bpm" latest={last?.hr ?? null} when={last ? `${dayWord(last.at, now)} ${timeOf(last.at)}` : 'No measurement yet'}
+        week={avg(all.slice(-7).map(x => x.rhr!))} month={avg(all.slice(-30).map(x => x.rhr!))} points={hrPts} width={inner} line
+        caption="Lower is usually better. A jump of 5+ bpm above your usual can mean strain, poor sleep or illness." />
+      <MetricCard icon="wave" color="#8e6cff" title="Heart rate variability" unit="ms" latest={last?.rmssd ?? null} when={last ? `${dayWord(last.at, now)} ${timeOf(last.at)}` : 'No measurement yet'}
+        week={avg(rmAll.slice(-7))} month={avg(rmAll.slice(-30))} chip={hrvChip} points={rmPts} band={band} colorFor={hrvColor} width={inner}
+        caption="Taller bars = more recovered, for you. Green is inside your normal (shaded), amber below it, blue above." />
 
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 26, paddingHorizontal: 6, paddingBottom: 8 }}>
         <T size={19} weight="700" track={-0.015}>{measuring ? 'Measuring' : 'Latest session'}</T>
@@ -135,18 +149,25 @@ export function Heart({ onBack }: { onBack: () => void }) {
       <Glass radius={24} innerStyle={{ padding: 16, gap: 14 }}>
         {L.trace.length > 1 ? (
           <>
-            <Waveform trace={L.trace} width={inner} height={56} />
+            {measuring && <Waveform trace={L.trace} width={inner} height={48} />}
             {measuring && <View style={{ height: 4, borderRadius: 2, backgroundColor: fill.tertiary, overflow: 'hidden' }}><View style={{ width: `${L.progress * 100}%`, height: 4, backgroundColor: accent.heart }} /></View>}
             <View style={{ flexDirection: 'row' }}>
               <Metric big label="Heart rate" value={session ? String(Math.round(session.hr)) : '–'} unit="bpm" />
-              <Metric big label="HRV" value={session && isFinite(session.rmssd) ? String(Math.round(session.rmssd)) : '–'} unit="ms" />
-              <Metric big label="Breathing" value={L.respRate != null ? String(Math.round(L.respRate)) : '–'} unit="/min" />
+              <Metric big label="HRV" value={sHrv != null ? String(sHrv) : '–'} unit="ms" state={sHrvState} />
+              <Metric big label="Breathing" value={br != null ? String(Math.round(br)) : '–'} unit="/min" state={brState} />
             </View>
-            <Pressable onPress={() => setMore(m => !m)} accessibilityRole="button" accessibilityState={{ expanded: more }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <T size={14} weight="600" color={accent.tab}>{more ? 'Hide details' : 'Details'}</T>
-              <Svg width={12} height={12} viewBox="0 0 24 24" style={{ transform: [{ rotate: more ? '180deg' : '0deg' }] }}><Path d="m6 9 6 6 6-6" fill="none" stroke={accent.tab} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" /></Svg>
+            {L.ibis.length > 3 && (
+              <View style={{ gap: 6 }}>
+                <T size={13} weight="600" tone="ink2">Your pulse during the minute</T>
+                <PulseLine ibis={L.ibis} width={inner} />
+                <T size={12} tone="ink2" lh={1.35}>It rises as you breathe in and falls as you breathe out. A bigger swing usually means higher HRV.</T>
+              </View>
+            )}
+            <Pressable onPress={() => setExpert(m => !m)} accessibilityRole="button" accessibilityState={{ expanded: expert }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <T size={14} weight="600" color={accent.tab}>{expert ? 'Hide expert view' : 'Expert view'}</T>
+              <Svg width={12} height={12} viewBox="0 0 24 24" style={{ transform: [{ rotate: expert ? '180deg' : '0deg' }] }}><Path d="m6 9 6 6 6-6" fill="none" stroke={accent.tab} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" /></Svg>
             </Pressable>
-            {more && (
+            {expert && (
               <Animated.View entering={FadeIn.duration(200)} style={{ gap: 14 }}>
                 <View style={{ flexDirection: 'row' }}>
                   <Metric label="SDNN" value={session ? String(Math.round(session.sdnn)) : '–'} unit="ms" />
@@ -156,11 +177,11 @@ export function Heart({ onBack }: { onBack: () => void }) {
                 </View>
                 {L.ibis.length > 3 && (
                   <>
-                    <T size={12} weight="600" tone="ink2">Beat-to-beat intervals</T>
+                    <T size={12} weight="600" tone="ink2">Beat-to-beat intervals (ms)</T>
                     <Tachogram ibis={L.ibis} width={inner} />
                     <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
                       <Poincare ibis={L.ibis} sd1={session?.sd1} sd2={session?.sd2} size={112} />
-                      <T size={13} lh={1.4} color={ink.body} style={{ flex: 1 }}>Each dot is one beat against the next. A wider cloud across the diagonal (SD1 {session && isFinite(session.sd1) ? Math.round(session.sd1) : '–'} ms) means more beat-to-beat variability. Colour channel: {L.channel ? L.channel.toUpperCase() : '–'}.</T>
+                      <T size={12} lh={1.4} color={ink.body} style={{ flex: 1 }}>Poincaré plot: each dot is one beat against the next. SD1 {session && isFinite(session.sd1) ? Math.round(session.sd1) : '–'} ms, SD2 {session && isFinite(session.sd2) ? Math.round(session.sd2) : '–'} ms. Colour channel {L.channel ? L.channel.toUpperCase() : '–'}.</T>
                     </View>
                   </>
                 )}

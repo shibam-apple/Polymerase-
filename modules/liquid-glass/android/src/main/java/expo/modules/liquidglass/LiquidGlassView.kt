@@ -25,9 +25,9 @@ import kotlin.math.min
  * children's existing display lists, so it is cheap — and drawn behind this view's content through a
  * GPU [RenderEffect] chain:
  *
- *  - API 33+  light Gaussian frost → AGSL glass shader: spherical-cap lens refraction from a rounded-rect
- *             signed distance field, per-channel dispersion (chromatic aberration), specular rim light and
- *             Fresnel-style edge brightening. 3 backdrop samples + 3 SDF evaluations per pixel.
+ *  - API 33+  optional Gaussian frost → AGSL glass shader: a smooth lens across the rim bevel (from a
+ *             rounded-rect signed distance field), a flat tint and a hairline rim light. No colour split,
+ *             no glow. 1 backdrop sample + 3 SDF evaluations per pixel.
  *  - API 31–32 Gaussian backdrop blur only (the fallback tier).
  *  - older     draws nothing; the JS side shows a frosted fill instead.
  */
@@ -50,8 +50,8 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
       uniform float radius;
       uniform float bevel;
       uniform float refraction;
-      uniform float dispersion;
-      uniform float specular;
+      uniform float rim;
+      uniform float line;
       uniform float4 tint;
 
       float sdRoundRect(float2 p, float2 b, float r) {
@@ -65,34 +65,27 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
         float d = sdRoundRect(p, hs, radius);
         if (d > 0.0) { return backdrop.eval(coord); }
 
-        // Outward surface normal from the distance field (forward differences).
+        // Outward surface normal from the distance field.
         float2 n = float2(sdRoundRect(p + float2(1.0, 0.0), hs, radius) - d,
                           sdRoundRect(p + float2(0.0, 1.0), hs, radius) - d);
         float nl = length(n);
         n = nl > 0.0001 ? n / nl : float2(0.0, 0.0);
 
-        // Spherical-cap lens across the bevel: u = 1 at the rim, 0 where the flat top begins.
+        // Smooth lens across the rim bevel: u = 1 at the edge, 0 where the flat top begins. The
+        // displacement grows with u^3, so the flat middle shows the backdrop undistorted and the bend
+        // eases in without a visible step. One sample: no colour split.
         float u = clamp(1.0 + d / bevel, 0.0, 1.0);
-        // Slope of a circular profile h = sqrt(1 - u^2) (|dh/du| = u / sqrt(1 - u^2)), kept bounded.
-        float slope = u / sqrt(max(1.0 - u * u, 0.02));
-        // Small-angle Snell refraction: the ray bends toward the centre in proportion to the slope.
-        float2 off = -n * refraction * (slope / (1.0 + slope));
+        float3 col = backdrop.eval(coord - n * refraction * u * u * u).rgb;
 
-        // Dispersion: red bends least, blue most (chromatic aberration at the rim).
-        float4 cr = backdrop.eval(coord + off * (1.0 - dispersion));
-        float4 cg = backdrop.eval(coord + off);
-        float4 cb = backdrop.eval(coord + off * (1.0 + dispersion));
-        float3 col = float3(cr.r, cg.g, cb.b);
+        // Flat body tint.
+        col = mix(col, tint.rgb, tint.a);
 
-        // Glass body tint, a little denser where the glass is thicker (toward the rim).
-        col = mix(col, tint.rgb, tint.a * (0.7 + 0.3 * u));
-
-        // Specular: key light from the top-left on the curved rim, a crisp 1 px edge, Fresnel glow.
-        float2 L = float2(-0.55, -0.835);
-        float spec = pow(max(dot(n, L), 0.0), 2.0) * u * u * u;
-        float edge = 1.0 - smoothstep(0.0, 1.5, -d);
-        float fres = pow(u, 5.0) * 0.25;
-        col += specular * (spec * 0.9 + edge * 0.35 + fres);
+        // Hairline rim light: brightest where the edge faces the top-left light, a fainter matching
+        // rim on the opposite edge, nothing inside. No glow.
+        float2 L = float2(-0.6, -0.8);
+        float lit = dot(n, L);
+        float edge = 1.0 - smoothstep(0.0, line, -d);
+        col += rim * edge * (0.18 + 0.82 * max(lit, 0.0) + 0.35 * max(-lit, 0.0));
         return half4(min(col, float3(1.0, 1.0, 1.0)), 1.0);
       }
     """
@@ -100,7 +93,6 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
 
   var cornerRadiusDp = 24f
   var refraction = 1f
-  var dispersion = 0.35f
   var bevelDp = 18f
   var frostDp = 2f
   var specular = 0.6f
@@ -198,8 +190,8 @@ class LiquidGlassView(context: Context, appContext: AppContext) : ExpoView(conte
       sh.setFloatUniform("radius", radiusPx())
       sh.setFloatUniform("bevel", max(1f, bevelDp * density))
       sh.setFloatUniform("refraction", refraction * bevelDp * density * 0.5f)
-      sh.setFloatUniform("dispersion", dispersion)
-      sh.setFloatUniform("specular", specular)
+      sh.setFloatUniform("rim", specular)
+      sh.setFloatUniform("line", 1.2f * density)
       sh.setFloatUniform("tint", tint[0], tint[1], tint[2], tint[3])
       val glass = RenderEffect.createRuntimeShaderEffect(sh, "backdrop")
       n.setRenderEffect(if (blur != null) RenderEffect.createChainEffect(glass, blur) else glass)

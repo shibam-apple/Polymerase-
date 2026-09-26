@@ -15,7 +15,6 @@ class LiquidGlassModule : Module() {
       Prop("backdropTag") { view: LiquidGlassView, tag: Int? -> view.setBackdropTag(tag) }
       Prop("cornerRadius") { view: LiquidGlassView, v: Float -> view.cornerRadiusDp = v }
       Prop("refraction") { view: LiquidGlassView, v: Float -> view.refraction = v }
-      Prop("dispersion") { view: LiquidGlassView, v: Float -> view.dispersion = v }
       Prop("bevel") { view: LiquidGlassView, v: Float -> view.bevelDp = v }
       Prop("frost") { view: LiquidGlassView, v: Float -> view.frostDp = v }
       Prop("specular") { view: LiquidGlassView, v: Float -> view.specular = v }

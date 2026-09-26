@@ -9,13 +9,11 @@ export type LiquidGlassProps = ViewProps & {
   cornerRadius?: number;
   /** 0–2: how strongly the rim bends the backdrop. */
   refraction?: number;
-  /** 0–1: chromatic aberration (RGB split) at the rim. */
-  dispersion?: number;
   /** Width of the curved rim, dp. */
   bevel?: number;
   /** Light Gaussian frost under the lens, dp. */
   frost?: number;
-  /** 0–1: rim highlight strength. */
+  /** 0–1: hairline rim light strength. */
   specular?: number;
   /** Glass body colour, #AARRGGBB. */
   tint?: string;

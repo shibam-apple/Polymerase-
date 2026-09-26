@@ -5,7 +5,7 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import type { Tab } from '../state/types';
 import { accent, ink } from '../theme';
 import { ease } from '../theme/motion';
-import { GLASS_DROP, GLASS_EDGE, GlassFill } from '../ui/glass/Glass';
+import { GLASS_DROP, glassBorder, GlassFill } from '../ui/glass/Glass';
 import { PressableScale } from '../ui/controls';
 import { GLASS_TIER } from '../ui/glass/capabilities';
 import { T } from '../ui/Text';
@@ -28,8 +28,6 @@ function Icon({ id, color }: { id: Tab; color: string }) {
 
 /** Clear glass runs only where the AGSL shader does. */
 const CLEAR = GLASS_TIER === 'liquid';
-/** A soft white halo keeps labels legible over any content under clear glass. */
-const LEGIBLE = { textShadowColor: 'rgba(255,255,255,.85)', textShadowRadius: 6 };
 
 type Props = { tab: Tab; onTab: (t: Tab) => void; quickOpen: boolean; onQuick: () => void; bottom: number; screenW: number };
 
@@ -48,8 +46,8 @@ export function TabBar({ tab, onTab, quickOpen, onQuick, bottom, screenW }: Prop
   // frost, so the content stays sharp and bends at the rim. Blur / frosted tiers keep a denser fill.
   const glassLayers = (r: number) => (
     <>
-      <GlassFill radius={r} tint={[0.34, 0.26]} backdrop="content" lens={1.6} clear={{ tint: 0.08, dispersion: 0.5 }} />
-      <View style={[StyleSheet.absoluteFill, { borderRadius: r, borderWidth: 1, borderColor: CLEAR ? 'rgba(255,255,255,.5)' : 'rgba(255,255,255,.6)', boxShadow: GLASS_EDGE }]} />
+      <GlassFill radius={r} variant="clear" backdrop="content" lens={1.3} />
+      <View style={[StyleSheet.absoluteFill, { borderRadius: r, borderWidth: StyleSheet.hairlineWidth, borderColor: glassBorder() }]} />
     </>
   );
 
@@ -58,7 +56,7 @@ export function TabBar({ tab, onTab, quickOpen, onQuick, bottom, screenW }: Prop
       <View onLayout={e => setPillW(e.nativeEvent.layout.width)} style={{ flex: 1, height: 62, borderRadius: 31, boxShadow: GLASS_DROP }}>
         <View style={[StyleSheet.absoluteFill, { borderRadius: 31, overflow: 'hidden' }]} pointerEvents="none">
           {glassLayers(31)}
-          <Animated.View style={[{ position: 'absolute', top: 4, bottom: 4, left: 4, width: slot, borderRadius: 27, backgroundColor: CLEAR ? 'rgba(255,255,255,.35)' : 'rgba(255,255,255,.55)', boxShadow: 'inset 0 1px 1px rgba(255,255,255,1), 0 2px 8px rgba(0,0,0,.06)' }, capsule]} />
+          <Animated.View style={[{ position: 'absolute', top: 4, bottom: 4, left: 4, width: slot, borderRadius: 27, backgroundColor: CLEAR ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.55)' }, capsule]} />
         </View>
         <View style={{ flex: 1, flexDirection: 'row', padding: 4 }}>
           {TABS.map(t => {
@@ -66,7 +64,7 @@ export function TabBar({ tab, onTab, quickOpen, onQuick, bottom, screenW }: Prop
             return (
               <PressableScale key={t.id} scaleTo={0.9} onPress={() => onTab(t.id)} accessibilityRole="tab" accessibilityState={{ selected: tab === t.id }} accessibilityLabel={t.label} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 }}>
                 <Icon id={t.id} color={c} />
-                <T size={10} weight="600" color={c} track={0.01} style={CLEAR ? LEGIBLE : undefined}>{t.label}</T>
+                <T size={10} weight="600" color={c} track={0.01}>{t.label}</T>
               </PressableScale>
             );
           })}

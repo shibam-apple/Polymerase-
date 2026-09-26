@@ -10,7 +10,7 @@ export function seedState(now = Date.now()): State {
   return {
     tab: 'today',
     minimised: false,
-    heartOpen: false,
+    page: null,
     water: 0,
     snoozed: [],
     swiped: false,
@@ -35,6 +35,8 @@ export function seedState(now = Date.now()): State {
     sleepLog: [],
     profile: { age: null, sex: null, heightCm: null, sleepTargetH: 8 },
     sleepStart: null,
+    sleepMethod: 'timer',
+    bpLog: [],
     sleepDraft: null,
     items: seedItems(),
   };

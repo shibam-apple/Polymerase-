@@ -1,5 +1,6 @@
 import { healthAge, type HealthAge } from '../health/healthAge';
-import { forecastTomorrow, recoveryFor, scoreHistory, type DayInput, type Forecast, type Recovery } from '../health/recovery';
+import { predict, type Prediction } from '../health/predict';
+import { forecastTomorrow, populationPrior, recoveryFor, type DayInput, type Forecast, type Recovery } from '../health/recovery';
 import { dayKey } from './seed';
 import type { HeartEntry, SleepEntry, State } from './types';
 
@@ -14,6 +15,14 @@ export type Derived = {
   sleepAvg7: number | null;
   /** One morning value per day (first measurement of each day), oldest first. */
   days: DayInput[];
+  /** Readiness for each past day with a morning measurement (each scored against its own past). */
+  history: { date: string; score: number }[];
+  /** Active predictions, alerts first. */
+  predictions: Prediction[];
+  /** Forecast gain from sleeping the full target tonight (points), when a forecast exists. */
+  sleepBoost: number | null;
+  /** Breathing rate of the latest measurement, if detected. */
+  breathing: number | null;
 };
 
 /** Share of the med + habit items due so far today that are done (null before anything is due). */
@@ -38,9 +47,16 @@ export function deriveHealth(s: State, now = new Date()): Derived {
   const today = dayKey(now), target = s.profile.sleepTargetH;
   const days = dailyInputs(s.heartLog, s.sleepLog);
   const todayInput: DayInput = { ...(days.find(d => d.date === today) ?? { date: today }), adherence: adherence(s, now) ?? undefined };
-  const recovery = recoveryFor(days, todayInput, target);
-  const scored = scoreHistory(days.filter(d => d.date < today), target);
-  const forecast = recovery.score != null ? forecastTomorrow([...scored, recovery.score], undefined, target) : null;
+  const prior = populationPrior(s.profile.age);
+  const recovery = recoveryFor(days, todayInput, target, prior);
+  const history = days.filter(d => d.date < today).map(d => ({ date: d.date, score: recoveryFor(days, d, target, prior).score }))
+    .filter((x): x is { date: string; score: number } => x.score != null);
+  const series = [...history.map(h => h.score), ...(recovery.score != null ? [recovery.score] : [])];
+  // Tomorrow if you sleep as you have been this week, and if you sleep the full target tonight.
+  const usualSleep = s.sleepLog.length ? s.sleepLog.slice(-7).reduce((a, x) => a + x.hours, 0) / Math.min(7, s.sleepLog.length) : undefined;
+  const forecast = recovery.score != null ? forecastTomorrow(series, usualSleep, target) : null;
+  const planned = recovery.score != null ? forecastTomorrow(series, target, target) : null;
+  const sleepBoost = forecast && planned && planned.score > forecast.score ? planned.score - forecast.score : null;
 
   const latestHeart = s.heartLog.length ? s.heartLog[s.heartLog.length - 1] : null;
   const todaysHeart = s.heartLog.find(h => dayKey(new Date(h.at)) === today) ?? null;
@@ -56,7 +72,9 @@ export function deriveHealth(s: State, now = new Date()): Derived {
     rhr: latestHeart?.hr ?? null, sys: bp.length === 2 ? bp[0] : null, dia: bp.length === 2 ? bp[1] : null,
     weightKg: w.length ? w[0] : null, sleepAvgH: sleepAvg7, rmssd: rmssd7,
   });
-  return { recovery, forecast, age, latestHeart, todaysHeart, sleepToday, rmssd7, sleepAvg7, days };
+  const predictions = predict({ days, prior, sleepTargetH: target, bedtimes: s.sleepLog.slice(-7).map(x => x.bed), bp: s.bpLog, now: now.getTime(), today });
+  const breathing = latestHeart?.respRate ?? null;
+  return { recovery, forecast, age, latestHeart, todaysHeart, sleepToday, rmssd7, sleepAvg7, days, history, predictions, sleepBoost, breathing };
 }
 
 /** "7 h 12 m" */

@@ -6,43 +6,26 @@ import Svg, { Path } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { longDate } from '../state/clock';
 import { deriveHealth } from '../state/health';
-import { nextItem, parts, progress, readiness, withWater } from '../state/selectors';
+import { nextItem, parts, progress, withWater } from '../state/selectors';
 import { useStore } from '../state/store';
-import type { Item } from '../state/types';
-import { C, ink } from '../theme';
+import type { Item, Page } from '../state/types';
+import { C, ink, isNight } from '../theme';
 import { ease, SNAP } from '../theme/motion';
+import { HomeCard } from '../components/HomeCard';
 import { Glass } from '../ui/glass/Glass';
-import { Hairline, PressableScale } from '../ui/controls';
-import { SleepIcon } from '../ui/SleepDial';
+import { PressableScale } from '../ui/controls';
 import { T } from '../ui/Text';
 
 const Check = ({ size = 16, color = '#fff', w = 3.2 }: { size?: number; color?: string; w?: number }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M20 6 9 17l-5-5" fill="none" stroke={color} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" /></Svg>
 );
 
-export function Today({ now, hour, onDetails }: { now: Date; hour: number; onDetails: () => void }) {
+export function Today({ now, hour, onPage }: { now: Date; hour: number; onPage: (p: Page) => void }) {
   const { s, a } = useStore();
   const items = withWater(s.items, s.water);
   const nx = nextItem(items, s.snoozed), { left } = progress(items);
-  const r = readiness(items), d = deriveHealth(s, now);
+  const d = deriveHealth(s, now);
   const [open, setOpen] = useState<Record<number, boolean>>({ 0: false, 1: true, 2: true });
-  const clock = (t: number) => { const x = new Date(t); return `${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}`; };
-  // The bedtime toggle, up front: "Going to bed" in the evening, "I'm up" while a night is timed,
-  // and "Log last night" on a morning without one.
-  const asleepH = s.sleepStart != null ? Math.max(0, (now.getTime() - s.sleepStart) / 3600000) : 0;
-  const sleepCta = s.sleepStart != null
-    ? { icon: 'sun' as const, title: 'I’m up', sub: `Asleep since ${clock(s.sleepStart)} · ${Math.floor(asleepH)} h ${Math.round((asleepH % 1) * 60)} m`, go: a.endSleep }
-    : hour >= 20 || hour < 4 ? { icon: 'moon' as const, title: 'Going to bed', sub: 'Tap now, then “I’m up” when you wake', go: a.startSleep }
-    : hour < 12 && !d.sleepToday ? { icon: 'sun' as const, title: 'Log last night', sub: 'Bed and wake times, in two drags', go: () => a.openSheet('sleep', { sleepDraft: null }) }
-    : null;
-
-  const scores = [
-    { label: 'Recovery', v: d.recovery.score ?? '–' },
-    { label: 'Sleep', v: d.sleepToday ? `${Math.round(d.sleepToday.hours * 10) / 10}h` : '–' },
-    { label: 'Mood', v: s.items.some(i => i.p === 'mind' && i.done) ? (r.moodIdx + 1) * 20 : '–' },
-    { label: 'Health age', v: d.age.age ?? '–' },
-  ];
-
   return (
     <View>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingTop: 6, paddingHorizontal: 4 }}>
@@ -55,49 +38,7 @@ export function Today({ now, hour, onDetails }: { now: Date; hour: number; onDet
         </PressableScale>
       </View>
 
-      {/* One clean window: the next item, then the four scores. */}
-      <Glass radius={28} tint={[0.8, 0.5]} angle={160} blur={34} border={0.85} style={{ marginTop: 16 }} innerStyle={{ paddingTop: 18, paddingHorizontal: 18, paddingBottom: 16, gap: 16 }}>
-        {sleepCta && (
-          <PressableScale testID="sleep-toggle" scaleTo={0.97} onPress={sleepCta.go} accessibilityLabel={sleepCta.title}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: -4, padding: 10, paddingRight: 14, borderRadius: 20, backgroundColor: s.sleepStart != null ? C.sleep : 'rgba(110,106,240,.1)' }}>
-            <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: s.sleepStart != null ? 'rgba(255,255,255,.22)' : '#fff' }}>
-              <Svg width={20} height={20} viewBox="0 0 20 20">{sleepCta.icon === 'moon' ? <SleepIcon.Moon x={10} y={10} c={C.sleep} /> : <SleepIcon.Sun x={10} y={10} c={s.sleepStart != null ? '#fff' : '#ff9f0a'} />}</Svg>
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <T size={16} weight="700" color={s.sleepStart != null ? '#fff' : C.sleep}>{sleepCta.title}</T>
-              <T size={12} numberOfLines={1} color={s.sleepStart != null ? 'rgba(255,255,255,.8)' : undefined} tone="ink2">{sleepCta.sub}</T>
-            </View>
-            {s.sleepStart != null && (
-              <Pressable onPress={a.cancelSleep} hitSlop={10} accessibilityLabel="Cancel sleep timer"><T size={13} weight="600" color="rgba(255,255,255,.85)">Cancel</T></Pressable>
-            )}
-          </PressableScale>
-        )}
-        {nx ? (
-          <Animated.View key={nx.id} entering={FadeIn.duration(300)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-              <T size={13} tone="ink2" tabular>{nx.time} · {left} left today</T>
-              <T size={24} weight="700" track={-0.025} lh={1.15} numberOfLines={1}>{nx.title}</T>
-            </View>
-            <PressableScale scaleTo={0.94} onPress={() => a.complete(nx)} style={{ height: 36, paddingHorizontal: 16, borderRadius: 18, backgroundColor: ink[1], justifyContent: 'center' }}>
-              <T size={15} weight="600" color="#fff">{nx.cta}</T>
-            </PressableScale>
-          </Animated.View>
-        ) : (
-          <View style={{ gap: 2 }}>
-            <T size={13} tone="ink2">Nothing left today</T>
-            <T size={24} weight="700" track={-0.025}>All set</T>
-          </View>
-        )}
-        <Hairline />
-        <View style={{ flexDirection: 'row' }}>
-          {scores.map(sc => (
-            <PressableScale key={sc.label} onPress={onDetails} accessibilityLabel={`${sc.label} ${sc.v}`} style={{ flex: 1, gap: 3 }}>
-              <T size={20} weight="600" track={-0.02} lh={1.1} tabular>{sc.v}</T>
-              <T size={12} tone="ink2" numberOfLines={1}>{sc.label}</T>
-            </PressableScale>
-          ))}
-        </View>
-      </Glass>
+      <HomeCard d={d} now={now} dark={isNight(hour)} nx={nx} left={left} onPage={onPage} />
 
       <View style={{ marginTop: 6 }}>
         {parts(items).map(p => {
@@ -133,7 +74,7 @@ export function Today({ now, hour, onDetails }: { now: Date; hour: number; onDet
                 <Glass radius={20} innerStyle={{ overflow: 'hidden', borderRadius: 20 }}>
                   {p.items.map((it, i) => (
                     <SwipeRow key={it.id} it={it} last={i === p.items.length - 1} popping={s.pop === it.id}
-                      onComplete={() => a.complete(it)} onOpen={() => (it.id === 1 ? a.openSheet('sleep') : a.openSheet('item', { itemId: it.id }))}
+                      onComplete={() => a.complete(it)} onOpen={() => (it.id === 1 ? onPage('sleep') : a.openSheet('item', { itemId: it.id }))}
                       onWater={() => a.addWater()} onSwiped={() => !s.swiped && a.patch({ swiped: true })} />
                   ))}
                 </Glass>

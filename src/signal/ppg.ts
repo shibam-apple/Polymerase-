@@ -2,6 +2,7 @@ import { bandpass, resampleUniform } from './filters';
 import { cleanIbis, hrvFromIbis, type HrvMetrics, type Ibi } from './hrv';
 import { morphology, type Morphology } from './morphology';
 import { elgendiPeaks } from './peaks';
+import { respirationFromPpg, type RespResult } from './respiration';
 import { beatSqis, grade, type Quality } from './quality';
 import { cardiacSnr, freqHrv, perfusionIndex, type FreqHrv } from './spectral';
 
@@ -17,6 +18,8 @@ export type PpgAnalysis = {
   /** Cleaned, uniformly sampled waveform (for the live trace) and its rate. */
   clean: Float64Array;
   fs: number;
+  /** Breathing rate by fusion of the three respiratory modulations of the pulse. */
+  resp: RespResult;
 };
 
 export type PpgOptions = {
@@ -50,7 +53,8 @@ export function analyzePpg(tSec: ArrayLike<number>, raw: ArrayLike<number>, opts
   const metrics = hrvFromIbis(ibis);
   const q = bq.filter(v => !Number.isNaN(v));
   const sqi = q.length >= 3 ? q.reduce((a, v) => a + Math.max(0, v), 0) / q.length : 0;
-  return { metrics, sqi, quality: metrics ? grade(sqi, metrics.validFraction) : 'poor', peakTimes, beatQuality: bq, ibis, clean, fs };
+  const resp = respirationFromPpg(clean, y, peaks, fs, ibis.map(b => b.valid));
+  return { metrics, sqi, quality: metrics ? grade(sqi, metrics.validFraction) : 'poor', peakTimes, beatQuality: bq, ibis, clean, fs, resp };
 }
 
 export type Channel = 'r' | 'g' | 'b' | 'luma';

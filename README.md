@@ -106,35 +106,52 @@ These are **simulator results, not clinical validation.**
 
 | Tier | Devices | How it's drawn |
 |---|---|---|
-| `liquid` | **Android 13+** (API 33+) | Native `LiquidGlassView` (`modules/liquid-glass`, Kotlin). The backdrop is recorded into a hardware `RenderNode` every frame, re-using existing display lists with no bitmap copies. A GPU `RenderEffect` chain then runs a 2 dp Gaussian frost, then an **AGSL** shader. |
-| `blur` | Android 12 (API 31–32) | The same native view with a Gaussian backdrop blur only. iOS and web use the platform blur. |
-| `frosted` | Android 11 and older | A denser frosted fill with the same edge highlights. No live effects. |
+| `liquid` | **Android 13+** (API 33+) | Native `LiquidGlassView` (`modules/liquid-glass`, Kotlin). The backdrop is recorded into a hardware `RenderNode` every frame, re-using existing display lists with no bitmap copies. A GPU `RenderEffect` chain then runs an optional Gaussian frost, then an **AGSL** shader. |
+| `blur` | Android 12 (API 31–32) | The same native view with a 20 dp Gaussian backdrop blur plus tint. |
+| translucent | Android 11 and older, web, iOS | A plain translucent card with a hairline border (with the platform blur on iOS and web). No gradients or sheens. |
 
-What the AGSL shader does:
-- Builds a rounded-rect signed distance field, with a spherical-cap lens profile across the bevel.
-- Refracts with a small-angle Snell approximation: the displacement follows the surface slope, bending toward the centre.
-- Adds per-channel dispersion (chromatic aberration), a specular key light on the rim, a crisp 1 px edge and a Fresnel-style edge glow.
-- Cost per pixel: 3 backdrop samples plus 3 distance evaluations.
+What the AGSL shader does (after Apple's Liquid Glass):
+- A smooth lens across the rim bevel, from a rounded-rect signed distance field.
+  - The displacement grows with u³, so the flat middle shows the backdrop undistorted and the bend eases in.
+- **One** backdrop sample, so there is no colour split (no chromatic aberration).
+- A flat low-alpha tint.
+- A **hairline** rim light: brightest where the edge faces the top-left light, with a fainter rim opposite. No glow, Fresnel or wide highlights.
+- Cost per pixel: 1 backdrop sample plus 3 distance evaluations.
+
+Variants:
+- **`regular`**: 10 dp frost plus tint. Used for the home card, so text on it is readable. It takes a dark tint and white text over the night sky.
+- **`clear`**: no frost and a 6% tint. Used for the tab bar and the + button.
 
 Where glass is used:
-- Only the **navigation**: the tab bar and the + button.
-  - On the `liquid` tier they are *clear* glass: no frost, an 8% tint, and stronger refraction and dispersion, so the content scrolling underneath stays sharp and bends at the rim.
-  - Labels get a soft white halo to stay legible.
-- Content cards are **normal cards**: opaque white, a hairline border and a soft shadow, legible on the day and night wallpapers.
-- Sheets use a near-opaque frosted panel.
+- The **home card** and the **navigation**.
+- Every other card is an opaque white card.
+- Sheets are a calm, near-opaque panel.
 - A glass view never refracts a backdrop that contains it.
 
-## Recovery and health age
+## Readiness, predictions and health age
 
-- **Recovery (0–100)** (`src/health/recovery.ts`)
-  - Built from your morning measurements, compared with *your own* baseline:
-    - HRV, 40 points: ln RMSSD against the mean ± ½ SD of up to 60 prior mornings.
-    - Resting HR, 20 points: z-score against 30 days.
+- **Readiness (0–100)** (`src/health/recovery.ts`)
+  - Built from your morning measurement:
+    - HRV, 40 points: ln RMSSD z-score against your baseline.
+    - Resting HR, 20 points.
     - Sleep, 25 points: hours against your target, scaled by the quality you rate.
     - Meds & habits, 5 points.
   - Parts with no data are left out rather than scored as bad.
-  - It says **"Learning"** until 3 mornings exist.
-  - **Tomorrow's estimate** is exponentially weighted persistence (today → recent average) with a ±1 SD band of past day-to-day changes.
+  - **Baselines are Bayesian** (normal–normal model):
+    - Your usual level starts at a population prior: age-expected ln RMSSD (between-person SD 0.45) and a resting HR of 64 ± 8.
+    - Each morning updates it, weighted by typical day-to-day variation (ln RMSSD ±0.2, RHR ±3 bpm).
+    - Today is z-scored against the posterior predictive spread.
+    - So there is a *provisional* score from the **first** morning, and it becomes personal within about a week.
+  - **Tomorrow's estimate** is exponentially weighted persistence with a ±1 SD band, plus the gain from sleeping your full target tonight.
+- **Predictions** (`src/health/predict.ts`), each with its evidence, a confidence level and what helps:
+  - **Strain / possible illness onset:** morning RHR ≥ baseline + max(3 bpm, 1 SD) *and* ln RMSSD ≤ baseline − 1 SD.
+    - The latest morning alone is a *watch*; two in a row is an *alert*.
+    - This is the pre-symptom pattern reported by Radin 2020 and Mishra 2020.
+  - **Overreaching:** the 7-day ln RMSSD mean drops more than 0.5 SD while its CV rises (Plews 2012).
+  - **Sleep debt:** 5 h or more short of target over 7 nights.
+  - **Irregular bedtime:** bedtime SD above 60 min.
+  - **Blood pressure:** a 14-day average in ACC/AHA stage 1 or 2, or systolic up 5 mmHg or more on the previous 14 days.
+  - Shown on the home card and on the Details → Predictions card. Indicative, not a diagnosis.
 - **Health age** (`src/health/healthAge.ts`)
   - Your age, plus or minus years for:
     - resting HR band
@@ -143,23 +160,34 @@ Where glass is used:
     - 7-day sleep
     - HRV against an approximate age trend
   - Each adjustment is listed. It's indicative, not validated.
-- **Measurement**
+
+## Measurement, charts and sleep
+
+- **Camera measurement**
   - Camera permission is asked with Android's own dialog.
-  - There is **no simulated data on the phone**.
+  - There is no simulated data on the phone.
   - The 60 s timer only counts while your fingertip covers the lens.
   - A reading is saved only with at least 40 clean beats and non-poor quality.
-  - A status line shows exactly what the camera is doing, with *Share diagnostics*.
-  - The torch is switched on *after* the camera session reports it has started, with retries and a 2 s watchdog.
-    - Applying it together with the start fails on some phones ("Camera is not active"). That made every retest after the first measurement run in the dark.
-  - The frame format that worked is remembered for later sessions.
-- **Heart trends** (`Details → Heart rate · HRV`)
-  - One clean chart per metric: a smooth line with one dot per morning, three gridlines, weekday initials, and your normal band.
-  - Tap or drag a chart to read any day.
-  - The latest session shows heart rate, HRV and breathing; the technical detail (SDNN, perfusion, tachogram, Poincaré) sits behind *Details*.
-- **Sleep** (`src/ui/SleepDial.tsx`)
-  - **Going to bed** / **I'm up** toggle at the top of Today, and in Quick log.
-  - "I'm up" opens a 24 h dial prefilled with the timed night: drag the moon (bedtime), the sun (wake-up) or the arc (the whole night), in 5-minute steps.
-  - A start more than 16 h old is treated as forgotten.
+  - The torch is switched on *after* the camera session has started, with retries and a watchdog.
+  - The status line and *Share diagnostics* show exactly what the camera did.
+- **Cleaner intervals:** after the range and local-median checks, an adaptive pass rejects artefacts (after Lipponen & Tarvainen 2019).
+  - The threshold is 5.2 × the quartile deviation of recent successive differences, so it scales with your own variability.
+  - It rejects intervals far from the local median, and ectopic short/long pairs.
+- **Breathing rate by smart fusion** (Karlen 2013, `src/signal/respiration.ts`):
+  - Three respiratory modulations of the pulse are measured: interval (RSA), amplitude and baseline.
+  - Each gets a Lomb–Scargle spectrum over 6–30 breaths/min.
+  - A rate is reported only when at least two of the three agree.
+- **Heart page:** reads like a watch widget.
+  - A big latest value, with weekly and monthly averages.
+  - HRV as day bars coloured against your normal band (green/amber/blue).
+  - Resting HR as a line scaled to your data.
+  - "Your pulse during the minute", with its peak and low.
+  - SDNN, tachogram and Poincaré plot sit under *Expert view*.
+- **Sleep page:**
+  - A night-sky header with the *Going to bed / I'm up* toggle and the tracking method (Tap timer · Manual · Ultrasonic).
+  - Last night on the 24 h dial.
+  - Icon stats: 7-day average, bedtime spread, sleep debt, breathing.
+  - The week against your goal.
 
 ## Install the test build on your phone
 

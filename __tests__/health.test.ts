@@ -1,15 +1,29 @@
 import { bpCategory, healthAge, hrvAge } from '../src/health/healthAge';
-import { forecastTomorrow, recoveryFor, scoreHistory, type DayInput } from '../src/health/recovery';
+import { forecastTomorrow, populationPrior, recoveryFor, scoreHistory, type DayInput } from '../src/health/recovery';
 
 const day = (i: number, rmssd: number, rhr: number, extra: Partial<DayInput> = {}): DayInput => ({ date: `2026-09-${String(i).padStart(2, '0')}`, lnRmssd: Math.log(rmssd), rhr, ...extra });
 const baseline = [day(1, 50, 58), day(2, 46, 60), day(3, 52, 57), day(4, 48, 59), day(5, 55, 58), day(6, 47, 60), day(7, 51, 58)];
 
 describe('recovery score', () => {
-  it('is "learning" with fewer than 3 prior mornings, with no score', () => {
-    const r = recoveryFor(baseline.slice(0, 2), day(3, 50, 58));
-    expect(r.status).toBe('learning');
-    expect(r.score).toBeNull();
-    expect(r.label).toBe('Learning · 2 of 3 mornings');
+  it('gives a provisional score from the very first morning, judged against the population prior', () => {
+    const first = recoveryFor([], day(1, 50, 58), 8, populationPrior(30));
+    expect(first.status).toBe('provisional');
+    expect(first.score).not.toBeNull();
+    expect(first.score!).toBeGreaterThan(60);
+    // A very low first reading still scores lower, but the wide prior keeps it from reading as a crisis.
+    const low = recoveryFor([], day(1, 22, 72), 8, populationPrior(30));
+    expect(low.score!).toBeLessThan(first.score!);
+    expect(low.score!).toBeGreaterThan(15);
+  });
+
+  it('moves the baseline from the prior towards your own mornings as they accumulate', () => {
+    const prior = populationPrior(30); // ≈ 44 ms expected
+    const highHrv = [60, 62, 58, 61, 63, 59, 60, 62, 61, 60].map((r, i) => day(i + 1, r, 55));
+    const early = recoveryFor(highHrv.slice(0, 1), day(11, 60, 55), 8, prior);
+    const late = recoveryFor(highHrv, day(11, 60, 55), 8, prior);
+    expect(late.band![0]).toBeGreaterThan(early.band![0]);
+    expect(late.status).toBe('ok');
+    expect(late.parts.find(p => p.key === 'hrv')!.note).toBe('Within your normal range');
   });
 
   it('scores a typical morning in the 70s–80s and an HRV crash much lower', () => {
@@ -55,7 +69,7 @@ describe('forecast', () => {
 
   it('scores history day by day using only each day’s past', () => {
     const s = scoreHistory([...baseline, day(8, 50, 58), day(9, 40, 62)]);
-    expect(s.length).toBe(6); // days 4..9 have ≥3 prior mornings
+    expect(s.length).toBe(9); // every morning with a measurement is scored (the prior covers the early ones)
     expect(s[s.length - 1]).toBeLessThan(s[s.length - 2]);
   });
 });

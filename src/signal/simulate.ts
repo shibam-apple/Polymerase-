@@ -11,6 +11,9 @@ export type SimOptions = {
   jitterMs?: number;
   noise?: number;
   wander?: number;
+  /** Breathing modulation of pulse amplitude (fraction, e.g. 0.15) and of the baseline (signal units). */
+  ampMod?: number;
+  baseMod?: number;
   /** Mimic camera PPG: reflected light drops as blood volume rises. */
   inverted?: boolean;
   seed?: number;
@@ -49,7 +52,8 @@ export function pulseAt(t: number, beats: number[], periodSec: number): number {
 export function simulatePpg(times: number[], o: SimOptions): number[] {
   const r = rng(o.seed ?? 7), beats = beatTimes(times[times.length - 1] ?? 0, o), period = 60 / o.hr;
   return times.map(t => {
-    const p = pulseAt(t, beats, period) + (o.wander ?? 0.3) * Math.sin(2 * Math.PI * 0.08 * t) + gauss(r) * (o.noise ?? 0.03);
+    const br = Math.sin(2 * Math.PI * (o.respHz ?? 0.25) * t);
+    const p = pulseAt(t, beats, period) * (1 + (o.ampMod ?? 0) * br) + (o.baseMod ?? 0) * br + (o.wander ?? 0.3) * Math.sin(2 * Math.PI * 0.08 * t) + gauss(r) * (o.noise ?? 0.03);
     return o.inverted ? 180 - 6 * p : p;
   });
 }

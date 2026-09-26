@@ -139,7 +139,7 @@ export function useHeartMeasurement({ durationSec = 60, warmupSec = 3, onComplet
       for (let i = 0; i < tail.length; i += 2) trace.push(hi > lo ? (tail[i] - lo) / (hi - lo) : 0.5);
       setLive(l => ({
         ...l, progress, contactSec, trace, ibis, validBeats: ibis.length, quality: a.quality, score: a.score, channel: a.channel,
-        perfusion: a.perfusion != null ? r1(a.perfusion) : l.perfusion, respRate: a.freq?.respRate ?? l.respRate,
+        perfusion: a.perfusion != null ? r1(a.perfusion) : l.perfusion, respRate: a.resp.rate ?? a.freq?.respRate ?? l.respRate,
         hr: m ? Math.round(m.hr) : l.hr, rmssd: m && isFinite(m.rmssd) ? Math.round(m.rmssd) : l.rmssd,
       }));
     }
@@ -154,7 +154,7 @@ export function useHeartMeasurement({ durationSec = 60, warmupSec = 3, onComplet
     if (outcome === 'saved' && a && m) {
       done.current?.({
         hr: Math.round(m.hr), rmssd: Math.round(m.rmssd), sdnn: Math.round(m.sdnn), sd1: m.sd1, sd2: m.sd2, ibis, quality: a.quality, at: Date.now(),
-        respRate: a.freq?.respRate ?? null, lfHf: r1(a.freq?.lfHf), perfusion: r1(a.perfusion), score: a.score, channel: a.channel, morphology: a.morphology,
+        respRate: a.resp.rate ?? a.freq?.respRate ?? null, lfHf: r1(a.freq?.lfHf), perfusion: r1(a.perfusion), score: a.score, channel: a.channel, morphology: a.morphology,
         source: meta.current.source,
       });
     }

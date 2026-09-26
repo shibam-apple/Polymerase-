@@ -7,7 +7,7 @@ import type { Profile } from '../health/healthAge';
 import { fmtHours, nightFromTimes } from './health';
 import { dayKey, seedItems, seedState } from './seed';
 import { fmtVital, REP_DEFS } from './selectors';
-import type { HeartEntry, Item, SheetKind, SleepEntry, State, Tab } from './types';
+import type { HeartEntry, Item, Page, SheetKind, SleepEntry, State, Tab } from './types';
 
 type Action =
   | { type: 'patch'; patch: Partial<State> }
@@ -19,9 +19,9 @@ type Action =
   | { type: 'hydrate'; saved: Persisted };
 
 /** The parts of state that survive restarts. The checklist only for the day it belongs to. */
-type Persisted = Pick<State, 'heartLog' | 'sleepLog' | 'profile' | 'vitals' | 'items' | 'water' | 'day' | 'rep' | 'sleepStart'>;
+type Persisted = Pick<State, 'heartLog' | 'sleepLog' | 'profile' | 'vitals' | 'items' | 'water' | 'day' | 'rep' | 'sleepStart' | 'bpLog' | 'sleepMethod'>;
 const STORAGE_KEY = 'daily:v2';
-const persistedOf = (s: State): Persisted => ({ heartLog: s.heartLog, sleepLog: s.sleepLog, profile: s.profile, vitals: s.vitals, items: s.items, water: s.water, day: s.day, rep: s.rep, sleepStart: s.sleepStart });
+const persistedOf = (s: State): Persisted => ({ heartLog: s.heartLog, sleepLog: s.sleepLog, profile: s.profile, vitals: s.vitals, items: s.items, water: s.water, day: s.day, rep: s.rep, sleepStart: s.sleepStart, bpLog: s.bpLog, sleepMethod: s.sleepMethod });
 
 /** Mark the Sleep row done with the logged duration when a night for today exists. */
 function withSleepItem(items: Item[], sleepLog: SleepEntry[], today: string): Item[] {
@@ -39,7 +39,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, sheet: null, pop: a.id, items: s.items.map(i => (i.id === a.id ? { ...i, done: true, detail: a.label } : i)) };
     case 'vitalSaved': {
       const cur = s.vitals[a.key];
-      return { ...s, vitals: { ...s.vitals, [a.key]: { ...cur, v: [...a.v], hist: [...cur.hist, a.v[0]].slice(-6), when: 'Just now' } } };
+      const bpLog = a.key === 'bp' && a.v.length === 2 ? [...s.bpLog, { at: Date.now(), sys: a.v[0], dia: a.v[1] }].slice(-400) : s.bpLog;
+      return { ...s, bpLog, vitals: { ...s.vitals, [a.key]: { ...cur, v: [...a.v], hist: [...cur.hist, a.v[0]].slice(-6), when: 'Just now' } } };
     }
     case 'heartSaved': {
       const rhr = s.vitals.rhr;
@@ -62,6 +63,8 @@ function reducer(s: State, a: Action): State {
         items: withSleepItem(items, sleepLog, today),
         profile: { ...s.profile, ...(a.saved.profile ?? {}) },
         sleepStart: a.saved.sleepStart ?? null,
+        bpLog: a.saved.bpLog ?? [],
+        sleepMethod: a.saved.sleepMethod ?? 'timer',
       };
     }
   }
@@ -100,7 +103,7 @@ function useActions(s: State, dispatch: (a: Action) => void) {
       patch, toast, setDone,
       setTab: (tab: Tab) => { if (tab !== latest.current.tab) tap(); patch({ tab }); },
       toggleMinimised: () => patch({ minimised: !latest.current.minimised, sheet: null }),
-      openHeart: (open: boolean) => patch({ heartOpen: open }),
+      openPage: (page: Page) => patch({ page, sheet: null }),
       openSheet: (sheet: SheetKind, extra: Partial<State> = {}) => patch({ sheet, ...extra }),
       closeSheet: () => patch({ sheet: null }),
       /** Tap on a row's check circle / hero button / swipe release. Mood items open the check-in instead. */
@@ -183,7 +186,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .catch(() => {})
       .finally(() => { loaded.current = true; });
   }, []);
-  const persisted = useMemo(() => persistedOf(s), [s.heartLog, s.sleepLog, s.profile, s.vitals, s.items, s.water, s.day, s.rep]); // eslint-disable-line react-hooks/exhaustive-deps
+  const persisted = useMemo(() => persistedOf(s), [s.heartLog, s.sleepLog, s.profile, s.vitals, s.items, s.water, s.day, s.rep, s.sleepStart, s.bpLog, s.sleepMethod]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!loaded.current) return;
     const id = setTimeout(() => { AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(persisted)).catch(() => {}); }, 400);

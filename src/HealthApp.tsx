@@ -12,11 +12,12 @@ import { Details } from './screens/Details';
 import { Heart } from './screens/Heart';
 import { Progress } from './screens/Progress';
 import { Report } from './screens/Report';
+import { Sleep } from './screens/Sleep';
 import { Today } from './screens/Today';
-import { ItemSheet, MoodSheet, ProfileSheet, QuickSheet, ShareSheet, SleepSheet, VitalSheet } from './sheets/Sheets';
+import { InsightsSheet, ItemSheet, MoodSheet, ProfileSheet, QuickSheet, ShareSheet, SleepSheet, VitalSheet } from './sheets/Sheets';
 import { useNow } from './state/clock';
 import { useStore } from './state/store';
-import type { Tab } from './state/types';
+import type { Page, Tab } from './state/types';
 import { DAY_INK, isNight, NIGHT_INK } from './theme';
 import { GlassBackdrop } from './ui/glass/Glass';
 import { InkProvider } from './ui/Text';
@@ -42,25 +43,25 @@ export function HealthApp() {
   const { now, hour } = useNow();
   const insets = useSafeAreaInsets();
   const { width: W, height: H } = useWindowDimensions();
-  const onWallpaper = s.tab === 'today' && !s.heartOpen;
+  const onWallpaper = s.tab === 'today' && !s.page;
   const night = isNight(hour);
   const ink = onWallpaper && night ? NIGHT_INK : DAY_INK;
   const scroll = useRef<ScrollView>(null);
   const [visits, setVisits] = useState<Record<Tab, number>>({ today: 0, progress: 0, details: 0, report: 0 });
 
   const goTab = (t: Tab) => {
-    if (t !== s.tab || s.heartOpen) setVisits(v => ({ ...v, [t]: v[t] + 1 }));
-    a.patch({ heartOpen: false });
+    if (t !== s.tab || s.page) setVisits(v => ({ ...v, [t]: v[t] + 1 }));
+    a.patch({ page: null });
     a.setTab(t);
     scroll.current?.scrollTo({ y: 0, animated: false });
   };
-  const openHeart = (open: boolean) => { a.openHeart(open); scroll.current?.scrollTo({ y: 0, animated: false }); };
+  const openPage = (p: Page) => { a.openPage(p); scroll.current?.scrollTo({ y: 0, animated: false }); };
 
   // Android back: close the sheet, then the heart screen, then restore from minimised.
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (s.sheet) { a.closeSheet(); return true; }
-      if (s.heartOpen) { openHeart(false); return true; }
+      if (s.page) { openPage(null); return true; }
       if (s.minimised) { a.toggleMinimised(); return true; }
       return false;
     });
@@ -75,7 +76,7 @@ export function HealthApp() {
   const appStyle = useAnimatedStyle(() => ({ opacity: appV.value, transform: [{ scale: 0.86 + 0.14 * appV.value }] }));
   const widgetStyle = useAnimatedStyle(() => ({ opacity: 1 - appV.value, transform: [{ scale: 1 - 0.2 * appV.value }] }));
 
-  const screenKey = s.heartOpen ? 'heart' : s.tab;
+  const screenKey = s.page ?? s.tab;
   const bottom = 24 + insets.bottom;
 
   return (
@@ -97,10 +98,11 @@ export function HealthApp() {
             <ScrollView ref={scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 130 + insets.bottom }}>
               <View style={{ width: '100%', maxWidth: 560, alignSelf: 'center' }}>
                 <Animated.View key={screenKey} entering={Platform.OS === 'web' ? FadeIn.duration(250) : screenIn}>
-                  {s.heartOpen ? <Heart onBack={() => openHeart(false)} />
-                    : s.tab === 'today' ? <Today now={now} hour={hour} onDetails={() => goTab('details')} />
+                  {s.page === 'heart' ? <Heart onBack={() => openPage(null)} backLabel={s.tab === 'today' ? 'Today' : 'Details'} />
+                    : s.page === 'sleep' ? <Sleep now={now} onBack={() => openPage(null)} backLabel={s.tab === 'today' ? 'Today' : 'Details'} />
+                    : s.tab === 'today' ? <Today now={now} hour={hour} onPage={openPage} />
                     : s.tab === 'progress' ? <Progress now={now} visitKey={visits.progress} />
-                    : s.tab === 'details' ? <Details now={now} visitKey={visits.details} onHeart={() => openHeart(true)} />
+                    : s.tab === 'details' ? <Details now={now} visitKey={visits.details} onHeart={() => openPage('heart')} onSleep={() => openPage('sleep')} />
                     : <Report now={now} />}
                 </Animated.View>
               </View>
@@ -116,7 +118,7 @@ export function HealthApp() {
       {s.toast && <Toast key={s.toast.key} text={s.toast.text} onUndo={s.toast.undo ? a.undo : undefined} bottom={insets.bottom} />}
       {s.sheet && (
         <Sheet onClose={a.closeSheet} bottom={insets.bottom}>
-          {s.sheet === 'quick' ? <QuickSheet /> : s.sheet === 'mood' ? <MoodSheet /> : s.sheet === 'vital' ? <VitalSheet key={s.vitalKey} /> : s.sheet === 'item' ? <ItemSheet now={now} /> : s.sheet === 'sleep' ? <SleepSheet /> : s.sheet === 'profile' ? <ProfileSheet /> : <ShareSheet />}
+          {s.sheet === 'quick' ? <QuickSheet /> : s.sheet === 'mood' ? <MoodSheet /> : s.sheet === 'vital' ? <VitalSheet key={s.vitalKey} /> : s.sheet === 'item' ? <ItemSheet now={now} /> : s.sheet === 'sleep' ? <SleepSheet /> : s.sheet === 'profile' ? <ProfileSheet /> : s.sheet === 'insights' ? <InsightsSheet now={now} /> : <ShareSheet />}
         </Sheet>
       )}
     </View>

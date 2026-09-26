@@ -3,7 +3,7 @@ import { Linking, Pressable, Share, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing, FadeIn, useAnimatedProps, useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { recoveryFor, type Part } from '../health/recovery';
+import { type Part } from '../health/recovery';
 import { describeDiag } from '../signal/camera/diag';
 import { longDate } from '../state/clock';
 import { deriveHealth } from '../state/health';
@@ -15,6 +15,7 @@ import { ease, SNAP } from '../theme/motion';
 import { Bar, Dot, PressableScale, useCountUp } from '../ui/controls';
 import { Glass } from '../ui/glass/Glass';
 import { T } from '../ui/Text';
+import { Icon } from '../ui/icons';
 import { Sparkline, Waveform } from '../viz/charts';
 import { FlameCapsule } from '../viz/FlameCapsule';
 
@@ -28,7 +29,7 @@ const PART_META: Record<Part['key'], { name: string; color: string }> = {
 };
 const scoreColor = (s: number) => (s >= 80 ? '#34a853' : s >= 60 ? '#ff9f0a' : '#ff6b5a');
 
-export function Details({ now, visitKey, onHeart }: { now: Date; visitKey: number; onHeart: () => void }) {
+export function Details({ now, visitKey, onHeart, onSleep }: { now: Date; visitKey: number; onHeart: () => void; onSleep: () => void }) {
   const { s, a } = useStore();
   const h = useHeart();
   const d = deriveHealth(s, now);
@@ -42,10 +43,8 @@ export function Details({ now, visitKey, onHeart }: { now: Date; visitKey: numbe
   const ringProps = useAnimatedProps(() => ({ strokeDashoffset: off.value }));
 
   const needsHeart = !d.todaysHeart, needsSleep = !d.sleepToday;
-  const sub = rec.status === 'learning'
-    ? 'Measure each morning, ideally before coffee. After 3 mornings your score has a baseline to compare against.'
-    : rec.status === 'needs-data' ? 'Measure your heart rate this morning to see today’s score.'
-    : rec.status === 'provisional' ? `Based on ${rec.baselineDays} mornings so far. It gets steadier after a week.`
+  const sub = rec.status === 'needs-data' ? 'Measure your heart rate this morning to see today’s readiness.'
+    : rec.status === 'provisional' ? (rec.baselineDays === 0 ? 'Provisional: compared with typical values for your age until your own mornings build up.' : `Provisional: ${rec.baselineDays} of your mornings so far, blended with typical values. Personal after a week.`)
     : 'Compared with your own last 60 days.';
 
   const measure = () => { h.start(); };
@@ -71,7 +70,7 @@ export function Details({ now, visitKey, onHeart }: { now: Date; visitKey: numbe
             </View>
           </View>
           <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-            <T size={12} weight="600" tone="ink2">Recovery</T>
+            <T size={12} weight="600" tone="ink2">Readiness</T>
             <T size={21} weight="700" track={-0.02} lh={1.15}>{rec.label}</T>
             <T size={13} tone="ink2" lh={1.35}>{sub}</T>
           </View>
@@ -100,7 +99,33 @@ export function Details({ now, visitKey, onHeart }: { now: Date; visitKey: numbe
           </View>
         )}
 
-        <HistoryBars days={d.days} visitKey={visitKey} target={s.profile.sleepTargetH} />
+        <HistoryBars d={d} visitKey={visitKey} />
+      </Glass>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 24, paddingHorizontal: 6, paddingBottom: 8 }}>
+        <T size={19} weight="700" track={-0.015}>Predictions</T>
+        <T size={12} tone="ink3">Checked every day</T>
+      </View>
+      <Glass radius={20} innerStyle={{ overflow: 'hidden', borderRadius: 20 }} testID="predictions">
+        {d.predictions.length === 0 ? (
+          <Pressable onPress={() => a.openSheet('insights')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16 }}>
+            <Icon name="spark" size={20} color="#34c759" />
+            <View style={{ flex: 1 }}>
+              <T size={16} weight="500">No warning signs</T>
+              <T size={12} tone="ink2">Strain, overreaching, sleep debt and blood pressure</T>
+            </View>
+            <Icon name="chevron" size={16} color={ink[3]} />
+          </Pressable>
+        ) : d.predictions.map((p, i) => (
+          <Pressable key={p.id} onPress={() => a.openSheet('insights')} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 16, borderBottomWidth: i === d.predictions.length - 1 ? 0 : 0.5, borderBottomColor: 'rgba(60,60,67,.14)', backgroundColor: pressed ? 'rgba(120,120,128,.06)' : 'transparent' })}>
+            <Icon name="alert" size={20} color={p.level === 'alert' ? '#ff453a' : '#ff9f0a'} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T size={16} weight="500" numberOfLines={1}>{p.title}</T>
+              <T size={12} tone="ink2" numberOfLines={1}>{p.evidence[0]}</T>
+            </View>
+            <Icon name="chevron" size={16} color={ink[3]} />
+          </Pressable>
+        ))}
       </Glass>
 
       <T size={19} weight="700" track={-0.015} style={{ paddingTop: 24, paddingHorizontal: 6, paddingBottom: 8 }}>What’s shaping it</T>
@@ -122,7 +147,7 @@ export function Details({ now, visitKey, onHeart }: { now: Date; visitKey: numbe
           );
         })}
         {missing.map((k, i) => (
-          <Pressable key={k} onPress={() => (k === 'sleep' ? a.openSheet('sleep') : measure())} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: i === missing.length - 1 ? 0 : 0.5, borderBottomColor: 'rgba(60,60,67,.14)', backgroundColor: pressed ? 'rgba(120,120,128,.06)' : 'transparent' })}>
+          <Pressable key={k} onPress={() => (k === 'sleep' ? onSleep() : measure())} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: i === missing.length - 1 ? 0 : 0.5, borderBottomColor: 'rgba(60,60,67,.14)', backgroundColor: pressed ? 'rgba(120,120,128,.06)' : 'transparent' })}>
             <Dot color="rgba(120,120,128,.35)" />
             <T size={16} weight="500" tone="ink2" style={{ flex: 1 }}>{PART_META[k].name}</T>
             <T size={14} weight="600" color={accent.tab}>{k === 'sleep' ? 'Log' : 'Measure'}</T>
@@ -166,9 +191,10 @@ export function Details({ now, visitKey, onHeart }: { now: Date; visitKey: numbe
   );
 }
 
-/** Recovery for each of the last 7 days that have a score (each scored against its own past). */
-function HistoryBars({ days, visitKey, target }: { days: ReturnType<typeof deriveHealth>['days']; visitKey: number; target: number }) {
-  const scored = days.map(d => ({ date: d.date, score: recoveryFor(days, d, target).score })).filter((x): x is { date: string; score: number } => x.score != null).slice(-7);
+/** Readiness for each of the last 7 days that have a score (each scored against its own past). */
+function HistoryBars({ d, visitKey }: { d: ReturnType<typeof deriveHealth>; visitKey: number }) {
+  const today = d.days.length ? d.days[d.days.length - 1].date : '';
+  const scored = [...d.history, ...(d.recovery.score != null && d.todaysHeart ? [{ date: today, score: d.recovery.score }] : [])].slice(-7);
   const [sel, setSel] = useState<number | null>(null);
   if (scored.length < 2) return null;
   const idx = sel != null && sel < scored.length ? sel : scored.length - 1;

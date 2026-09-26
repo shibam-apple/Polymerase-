@@ -120,6 +120,75 @@ export function Sparkline({ data, color, width = 64, height = 22 }: { data: numb
   );
 }
 
+// ── Day bars (trends anyone can read) ────────────────────────────────────────
+/**
+ * One bar per day, coloured by how it compares with the shaded "your normal" band (or one colour when
+ * there is no band). Three light gridlines labelled on the right, weekday initials (or dates) below.
+ * Tap or drag to select a day; `onSelect(null)` when the finger lifts.
+ */
+export function DayBars({ points, width, height = 140, band, goal, color, colorFor, selected, onSelect }: {
+  points: DayPoint[]; width: number; height?: number; band?: [number, number] | null; goal?: number; color: string;
+  colorFor?: (v: number) => string; selected?: number | null; onSelect?: (i: number | null) => void;
+}) {
+  if (!points.length || width <= 0) return <View style={{ height }} />;
+  const padR = 30, padT = 8, padB = 20, plotW = width - padR, plotH = height - padT - padB;
+  const vals = points.map(p => p.v), all = [...vals, ...(band ?? []), ...(goal != null ? [goal] : [])];
+  const top = niceTicks(0, Math.max(...all) * 1.08)[2];
+  const ticks = [0, top / 2, top];
+  const Y = (v: number) => padT + (1 - v / top) * plotH;
+  const slot = plotW / points.length, bw = Math.max(3, Math.min(26, slot * 0.62));
+  const few = points.length <= 8;
+  const labelIdx = few ? points.map((_, i) => i) : [0, Math.round((points.length - 1) / 2), points.length - 1];
+  const sel = selected != null && selected >= 0 && selected < points.length ? selected : null;
+  const pick = (x: number) => onSelect?.(Math.max(0, Math.min(points.length - 1, Math.floor(x / slot))));
+  const pan = Gesture.Pan().minDistance(0).onBegin(e => pick(e.x)).onUpdate(e => pick(e.x)).onFinalize(() => onSelect?.(null)).runOnJS(true);
+  const chart = (
+    <Svg width={width} height={height}>
+      {ticks.map(v => (
+        <G key={v}>
+          <Line x1={0} x2={plotW} y1={Y(v)} y2={Y(v)} stroke="rgba(60,60,67,.1)" strokeWidth={1} />
+          <SvgText fontFamily={SVG_FONT} x={width - 2} y={Y(v) + 3.5} fontSize={10} fill={ink[3]} textAnchor="end">{Math.round(v)}</SvgText>
+        </G>
+      ))}
+      {band && <Rect x={0} y={Y(band[1])} width={plotW} height={Math.max(2, Y(band[0]) - Y(band[1]))} fill={color} opacity={0.1} rx={4} />}
+      {goal != null && <Line x1={0} x2={plotW} y1={Y(goal)} y2={Y(goal)} stroke={ink[2]} strokeWidth={1.2} strokeDasharray="4 4" />}
+      {points.map((p, i) => {
+        const x = i * slot + (slot - bw) / 2, y = Y(p.v), c = colorFor ? colorFor(p.v) : color;
+        return <Rect key={p.date} x={x} y={y} width={bw} height={Math.max(2, padT + plotH - y)} rx={Math.min(6, bw / 2)} fill={c} opacity={sel == null || sel === i ? 1 : 0.35} />;
+      })}
+      {labelIdx.map(i => {
+        const d = new Date(`${points[i].date}T12:00:00`), x = i * slot + slot / 2;
+        return <SvgText fontFamily={SVG_FONT} key={i} x={x} y={height - 5} fontSize={10} fontWeight={sel === i ? '700' : '400'} fill={sel === i ? ink[1] : ink[3]} textAnchor="middle">{few ? 'SMTWTFS'[d.getDay()] : `${d.getDate()}/${d.getMonth() + 1}`}</SvgText>;
+      })}
+    </Svg>
+  );
+  return onSelect ? <GestureDetector gesture={pan}><View collapsable={false}>{chart}</View></GestureDetector> : chart;
+}
+
+// ── Pulse during a measurement, in bpm, with its peak and low ────────────────
+export function PulseLine({ ibis, width, height = 90, color = accent.heart }: { ibis: number[]; width: number; height?: number; color?: string }) {
+  if (ibis.length < 3 || width <= 0) return <View style={{ height }} />;
+  // Smooth over 3 beats so the line reads as heart rate, not beat-timing noise.
+  const bpm = ibis.map(ms => 60000 / ms).map((v, i, a) => (a[i - 1] ?? v) * 0.25 + v * 0.5 + (a[i + 1] ?? v) * 0.25);
+  const lo = Math.min(...bpm), hi = Math.max(...bpm), padT = 18, padB = 18;
+  const Y = (v: number) => padT + (1 - (v - lo) / (hi - lo || 1)) * (height - padT - padB);
+  const xy = bpm.map((v, i) => ({ x: 4 + (i / (bpm.length - 1)) * (width - 8), y: Y(v) }));
+  const iHi = bpm.indexOf(hi), iLo = bpm.indexOf(lo);
+  const tag = (i: number, label: string, above: boolean) => {
+    const p = xy[i], anchor = p.x < 40 ? 'start' : p.x > width - 40 ? 'end' : 'middle';
+    return <SvgText fontFamily={SVG_FONT} x={p.x} y={above ? p.y - 7 : p.y + 15} fontSize={10} fontWeight="600" fill={ink[2]} textAnchor={anchor}>{label}</SvgText>;
+  };
+  return (
+    <Svg width={width} height={height}>
+      <Path d={smoothPath(xy)} fill="none" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+      <Circle cx={xy[iHi].x} cy={xy[iHi].y} r={3.5} fill={color} />
+      <Circle cx={xy[iLo].x} cy={xy[iLo].y} r={3.5} fill="#fff" stroke={color} strokeWidth={2} />
+      {tag(iHi, `PEAK ${Math.round(hi)}`, true)}
+      {tag(iLo, `LOW ${Math.round(lo)}`, false)}
+    </Svg>
+  );
+}
+
 // ── Live PPG waveform ────────────────────────────────────────────────────────
 export function Waveform({ trace, width, height = 44, color = accent.heart }: { trace: number[]; width: number; height?: number; color?: string }) {
   if (trace.length < 2 || width <= 0) return <View style={{ height }} />;
