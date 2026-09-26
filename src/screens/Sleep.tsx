@@ -188,8 +188,8 @@ export function Sleep({ now, onBack, backLabel = 'Today' }: { now: Date; onBack:
       <Glass radius={24} innerStyle={{ padding: 16, gap: 8 }}>
         {points.length >= 2 ? (
           <>
-            <DayBars points={points} width={inner} goal={target} color={C.sleep} colorFor={v => (v >= target - 0.5 ? C.sleep : '#b9b6f7')} />
-            <T size={12} tone="ink2" lh={1.35}>Dashed line: your {target} h goal. Lighter bars fell short of it.</T>
+            <DayBars points={points} width={inner} goal={target} goalLabel={`${target} h goal`} fmt={v => v.toFixed(1)} color={C.sleep} colorFor={v => (v >= target - 0.5 ? C.sleep : '#c3c1f7')} />
+            <T size={12} tone="ink2" lh={1.35}>Hours slept each night. Pale bars fell short of your goal.</T>
           </>
         ) : (
           <T size={13} tone="ink2" lh={1.4}>Your week appears after two nights.</T>

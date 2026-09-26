@@ -205,7 +205,7 @@ function HistoryBars({ d, visitKey }: { d: ReturnType<typeof deriveHealth>; visi
         <T size={12} weight="600" tone="ink2">Recent days</T>
         <T size={12} weight="600" tabular>{dayName(scored[idx].date)} · {scored[idx].score}</T>
       </View>
-      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', height: 72 }}>
+      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end', height: 88 }}>
         {scored.map((x, j) => <DayBar key={`${x.date}-${visitKey}`} v={x.score} on={idx === j} color={scoreColor(x.score)} delay={j * 30} label={`${dayName(x.date)} ${x.score}`} onPress={() => setSel(j)} />)}
       </View>
       <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -220,8 +220,9 @@ function DayBar({ v, on, color, delay, label, onPress }: { v: number; on: boolea
   useEffect(() => { h.value = withDelay(delay, withTiming(1, { duration: 380, easing: ease.springBar })); }, [h, delay]);
   const a = useAnimatedStyle(() => ({ transform: [{ scaleY: h.value }] }));
   return (
-    <PressableScale scaleTo={0.94} onPress={onPress} accessibilityLabel={label} style={{ flex: 1, height: '100%', justifyContent: 'flex-end' }}>
-      <Animated.View style={[{ width: '100%', height: `${Math.max(6, v)}%`, borderRadius: 8, backgroundColor: on ? color : 'rgba(120,120,128,.2)', transformOrigin: 'bottom' }, a]} />
+    <PressableScale scaleTo={0.94} onPress={onPress} accessibilityLabel={label} style={{ flex: 1, height: '100%', justifyContent: 'flex-end', alignItems: 'center', gap: 3 }}>
+      <T size={on ? 12 : 10} weight={on ? '700' : '500'} tone={on ? 'ink' : 'ink3'} tabular>{v}</T>
+      <Animated.View style={[{ width: '100%', height: `${Math.max(6, v * 0.78)}%`, borderTopLeftRadius: 8, borderTopRightRadius: 8, borderBottomLeftRadius: 3, borderBottomRightRadius: 3, backgroundColor: color, opacity: on ? 1 : 0.4, transformOrigin: 'bottom' }, a]} />
     </PressableScale>
   );
 }

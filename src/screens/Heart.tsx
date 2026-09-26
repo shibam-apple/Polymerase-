@@ -80,7 +80,7 @@ function MetricCard({ icon, color, title, unit, latest, when, week, month, chip,
         <>
           {line
             ? <DayChart points={points} width={width} color={color} band={band} selected={sel} onSelect={setSel} />
-            : <DayBars points={points} width={width} band={band} color={color} colorFor={colorFor} selected={sel} onSelect={setSel} />}
+            : <DayBars points={points} width={width} band={band} average={!band} color={color} colorFor={colorFor} selected={sel} onSelect={setSel} />}
           <T size={12} tone="ink2" lh={1.35}>{caption}</T>
         </>
       ) : (
