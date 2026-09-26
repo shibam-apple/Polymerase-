@@ -13,6 +13,7 @@ import { GLASS_TIER } from '../ui/glass/capabilities';
 import { PressableScale } from '../ui/controls';
 import { T } from '../ui/Text';
 import { WallpaperLayer } from './Wallpaper';
+import { useLingering } from '../ui/useLingering';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'today', label: 'Today' }, { id: 'progress', label: 'Progress' }, { id: 'details', label: 'Details' }, { id: 'report', label: 'Report' },
@@ -39,7 +40,8 @@ function Refraction({ x, y, w, h, screenW, screenH, hour, visible }: { x: number
   const op = useSharedValue(visible ? 1 : 0);
   useEffect(() => { op.value = withTiming(visible ? 1 : 0, { duration: 800 }); }, [visible, op]);
   const a = useAnimatedStyle(() => ({ opacity: op.value }));
-  if (w <= 0) return null;
+  const mounted = useLingering(visible);
+  if (w <= 0 || !mounted) return null;
   return (
     <Animated.View style={[StyleSheet.absoluteFill, a]} pointerEvents="none">
       <Canvas style={{ width: w, height: h }}>

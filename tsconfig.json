@@ -2,7 +2,13 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "types": ["jest"]
+    "types": [
+      "jest"
+    ]
   },
-  "exclude": ["backend", "node_modules"]
+  "exclude": [
+    "backend",
+    "research",
+    "node_modules"
+  ]
 }

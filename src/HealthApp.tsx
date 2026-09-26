@@ -20,6 +20,7 @@ import type { Tab } from './state/types';
 import { DAY_INK, isNight, NIGHT_INK } from './theme';
 import { GlassBackdrop } from './ui/glass/Glass';
 import { InkProvider } from './ui/Text';
+import { useLingering } from './ui/useLingering';
 
 /** `@keyframes screenIn { from { opacity:0; transform:translateY(8px) } }`, 350 ms ease-out. */
 const screenIn = (_: EntryAnimationsValues) => {
@@ -78,6 +79,7 @@ export function HealthApp() {
   });
 
   const wallStyle = useFade(onWallpaper);
+  const wallMounted = useLingering(onWallpaper);
   const neutralStyle = useFade(!onWallpaper);
   const appV = useSharedValue(1);
   useEffect(() => { appV.value = s.minimised ? withTiming(0, { duration: 350 }) : withSpring(1, { damping: 16, stiffness: 160 }); }, [s.minimised, appV]);
@@ -92,7 +94,7 @@ export function HealthApp() {
       <StatusBar style={ink === NIGHT_INK ? 'light' : 'dark'} />
       <GlassBackdrop style={StyleSheet.absoluteFill}>
         <Animated.View style={[StyleSheet.absoluteFill, neutralStyle]}><NeutralBackdrop width={W} height={H} /></Animated.View>
-        <Animated.View style={[StyleSheet.absoluteFill, wallStyle]}><Wallpaper width={W} height={H} hour={hour} /></Animated.View>
+        <Animated.View style={[StyleSheet.absoluteFill, wallStyle]}>{wallMounted && <Wallpaper width={W} height={H} hour={hour} />}</Animated.View>
       </GlassBackdrop>
 
       <Animated.View style={[StyleSheet.absoluteFill, { zIndex: 5 }, widgetStyle]} pointerEvents={s.minimised ? 'auto' : 'none'}>

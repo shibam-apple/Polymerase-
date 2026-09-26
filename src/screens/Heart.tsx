@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, Share, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { mean, std } from '../signal/filters';
@@ -22,6 +22,13 @@ function Segmented<K extends string>({ options, value, onChange }: { options: [K
       ))}
     </View>
   );
+}
+
+/** Raw R/G/B session as compact JSON through the system share sheet, so it can be sent back for tuning. */
+function shareSession(sess: NonNullable<ReturnType<typeof useHeart>['lastSession']>) {
+  const q = (a: number[], d = 2) => a.map(v => Math.round(v * 10 ** d) / 10 ** d);
+  const body = JSON.stringify({ ...sess, t: q(sess.t, 4), r: q(sess.r), g: q(sess.g), b: q(sess.b) });
+  Share.share({ title: 'Daily PPG session', message: body }).catch(() => {});
 }
 
 const Metric = ({ label, value, unit }: { label: string; value: string; unit?: string }) => (
@@ -109,6 +116,12 @@ export function Heart({ onBack }: { onBack: () => void }) {
               <Metric label="SDNN" value={session ? String(Math.round(session.sdnn)) : '–'} unit="ms" />
               <Metric label="Beats" value={String(L.ibis.length + (L.ibis.length ? 1 : 0))} />
             </View>
+            <View style={{ flexDirection: 'row' }}>
+              <Metric label="Breathing" value={L.respRate != null ? String(Math.round(L.respRate)) : '–'} unit="/min" />
+              <Metric label="Perfusion" value={L.perfusion != null ? L.perfusion.toFixed(1) : '–'} unit="%" />
+              <Metric label="Signal" value={L.score != null ? String(L.score) : '–'} unit="/100" />
+              <Metric label="Channel" value={L.channel ? L.channel.toUpperCase() : '–'} />
+            </View>
             {L.ibis.length > 3 && (
               <Animated.View entering={FadeIn.duration(300)} style={{ gap: 8 }}>
                 <T size={12} weight="600" tone="ink2">Beat-to-beat intervals</T>
@@ -137,6 +150,25 @@ export function Heart({ onBack }: { onBack: () => void }) {
         <PressableScale scaleTo={0.97} onPress={measuring ? h.cancel : h.start} style={{ height: 48, borderRadius: 24, backgroundColor: measuring ? fill.tertiary : ink[1], alignItems: 'center', justifyContent: 'center' }}>
           <T size={16} weight="600" color={measuring ? ink[1] : '#fff'}>{measuring ? 'Stop' : 'Measure now'}</T>
         </PressableScale>
+        {!measuring && h.lastSession && (
+          <PressableScale scaleTo={0.97} onPress={() => shareSession(h.lastSession!)} style={{ height: 44, borderRadius: 22, backgroundColor: fill.tertiary, alignItems: 'center', justifyContent: 'center' }}>
+            <T size={15} weight="600" color={ink[1]}>Share raw measurement</T>
+          </PressableScale>
+        )}
+      </Glass>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 26, paddingHorizontal: 6, paddingBottom: 8 }}>
+        <T size={19} weight="700" track={-0.015}>Glucose</T>
+        <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: fill.tertiary }}><T size={12} weight="600" tone="ink2">Research</T></View>
+      </View>
+      <Glass radius={20} innerStyle={{ padding: 16, gap: 8 }} testID="analytics-glucose">
+        <T size={15} weight="600">No estimate yet, on purpose</T>
+        <T size={13} lh={1.45} color={ink.body}>
+          We tested glucose-from-pulse on a public dataset of 20 people with the same algorithm this app runs. On people it hadn’t seen, it did no better than guessing the average, so showing a number would mislead you.
+        </T>
+        <T size={13} lh={1.45} color={ink.body}>
+          Each measurement still records the pulse shape (rise time, reflection, second-derivative ratios) so a future model can be checked against it.
+        </T>
       </Glass>
 
       <T size={13} tone="ink2" style={{ paddingTop: 22, paddingHorizontal: 16, paddingBottom: 6 }}>Signal source</T>

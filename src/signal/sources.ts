@@ -1,7 +1,7 @@
 import { beatTimes, pulseAt, rng } from './simulate';
 
 /** One brightness sample from a PPG sensor. `t` in seconds (monotonic). */
-export type PpgSample = { t: number; v: number };
+export type PpgSample = { t: number; v: number; r?: number; g?: number; b?: number; luma?: number; contact?: boolean };
 
 export type SourceStatus = 'idle' | 'starting' | 'running' | 'no-contact' | 'error';
 
@@ -34,7 +34,9 @@ export class SimulatedPpgSource implements HeartSource {
     this.timer = setInterval(() => {
       const t = (Date.now() - t0) / 1000;
       const p = pulseAt(t, beats, period) + 0.25 * Math.sin(2 * Math.PI * 0.08 * t) + (r() - 0.5) * 0.08;
-      onSample({ t, v: 180 - 6 * p });
+      // Like a real fingertip under the torch: strong red, weaker green, almost no blue pulse.
+      const red = 180 - 6 * p, green = 60 - 2.2 * p + (r() - 0.5) * 0.6, blue = 22 + (r() - 0.5) * 1.2;
+      onSample({ t, v: red, r: red, g: green, b: blue, luma: 0.299 * red + 0.587 * green + 0.114 * blue, contact: true });
     }, 1000 / 30);
   }
 

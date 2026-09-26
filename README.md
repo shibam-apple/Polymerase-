@@ -66,6 +66,33 @@ All processing runs on the phone. It follows NeuroKit2's (MIT) defaults, ported 
 
 A session lasts 60 s, the usual minimum for ultra-short RMSSD, after a 3 s warm-up.
 
+On top of that core, each session also:
+
+- **Captures R, G and B separately** and analyses the channel with the strongest cardiac band (`cardiacSnr`). Red
+  is usually most robust under the torch, and green the most pulsatile.
+- **Locks the camera's 3A** (auto-exposure, white balance and focus) about 2.5 s after the torch comes on, so
+  the camera stops correcting the pulse away. Unsupported phones fall back to auto.
+- **Drops individual bad beats** (`beatSqis`: correlation with the average beat) instead of the whole session.
+- **Frequency-domain HRV** (`spectral.ts`): Lomb–Scargle LF/HF, and **breathing rate** from the respiratory
+  sinus-arrhythmia peak. It's reported only when the peak really is a rhythm.
+- **Perfusion index** (AC/DC) and a 0–100 signal score.
+- **Pulse morphology** (`morphology.ts`): rise time, width at 50%, second-derivative a–e ratios and aging index,
+  reflection index, ΔT and the inflection-point area ratio. These are the amplitude-independent features the BP
+  and glucose research builds on.
+- **Share raw measurement** (Heart screen) exports the R/G/B session as JSON through the share sheet, so real
+  recordings can be replayed and tuned against.
+
+## Glucose: what the evidence says
+
+`research/glucose/evaluate.ts` runs the app's own feature pipeline on the public
+[PPG-based BGL assessment dataset](https://github.com/sanvsquezsz/PPG-based-BGL-assessment): 20 people, one
+fingerstick each, finger and earlobe PPG. The study is leave-one-subject-out, and the ridge penalty is chosen only on
+training subjects. Results are in [`research/glucose/REPORT.md`](research/glucose/REPORT.md).
+
+**No PPG model beat predicting the average** on unseen people. Even the trivial baseline scores 100% in Clarke
+A+B. That matches the 2026 re-evaluation of the field (arXiv 2608.01820), so the app shows **no calibration-free
+glucose number**. Re-run with `npm run research:glucose -- <dataset dir> research/glucose/REPORT.md`.
+
 **Accuracy on synthetic camera-like PPG**, from `__tests__/signal.test.ts` (30 fps, jittery frames, noise):
 - HR stays within ±2 bpm at 50, 75 and 110 bpm.
 - RMSSD stays within 2 ms of ground truth.
@@ -84,6 +111,13 @@ These are **simulator results, not clinical validation.**
 
 The tier is chosen once, in `src/ui/glass/capabilities.ts`. Every glass surface uses `<Glass>`
 (`src/ui/glass/Glass.tsx`), and CSS `boxShadow` (RN 0.86) carries the design's inset highlights.
+
+## Install the test build on your phone
+
+Open **https://github.com/shibam-apple/Polymerase-/releases/tag/test-latest** on your Android phone, tap
+`Daily-test-N.apk`, allow Chrome to install apps (once), then Install. Every push to `main` builds a new signed APK
+there (GitHub Actions, about 15–25 min); it installs over the previous one. The build number is shown at the bottom
+of the Report tab.
 
 ## Run it
 
