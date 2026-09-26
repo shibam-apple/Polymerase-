@@ -7,7 +7,7 @@ import { useStore } from '../state/store';
 import { C, fill, ink, LONG_NAMES, NAMES, PILLARS, type Pillar } from '../theme';
 import { ease, SNAP } from '../theme/motion';
 import { Bar, Dot, PressableScale, Switch, useCountUp } from '../ui/controls';
-import { Breathe, ColorCell, Shimmer } from '../ui/effects';
+import { Breathe, ColorCell } from '../ui/effects';
 import { Glass } from '../ui/glass/Glass';
 import { T } from '../ui/Text';
 
@@ -133,7 +133,7 @@ export function Progress({ now, visitKey }: { now: Date; visitKey: number }) {
             <Glass key={slot} testID={`analytics-${slot}`} radius={20} innerStyle={{ overflow: 'hidden', borderRadius: 20 }}>
               <Pressable onPress={() => setOpenIns(open ? null : slot)} style={({ pressed }) => ({ gap: 10, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: pressed ? 'rgba(120,120,128,.06)' : 'transparent' })} accessibilityState={{ expanded: open }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <Shimmer style={{ width: 36, height: 36, borderRadius: 12 }} />
+                  <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: fill.tertiary }} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <T size={16} weight="600">{title}</T>
                     <T size={13} tone="ink2">{sub}</T>
@@ -142,7 +142,7 @@ export function Progress({ now, visitKey }: { now: Date; visitKey: number }) {
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <View style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: fill.tertiary, overflow: 'hidden' }}>
-                    <Shimmer style={{ width: `${(n / 30) * 100}%`, height: 4, borderRadius: 2 }} base="#86868b" hi="#1d1d1f" period={2400} />
+                    <View style={{ width: `${(n / 30) * 100}%`, height: 4, borderRadius: 2, backgroundColor: '#86868b' }} />
                   </View>
                   <T size={11} tone="ink3" tabular>Learning · {n} of 30 days</T>
                 </View>

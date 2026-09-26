@@ -50,18 +50,10 @@ export const Wallpaper = memo(function Wallpaper({ width: W, height: H, hour: hr
 
   const stars = useMemo(() => Array.from({ length: 46 }, (_, i) => ({ x: rand(i, 91) * W * 1.08, y: rand(i, 17) * 460, r: rand(i, 3) > 0.85 ? 1.6 : 0.9, o: 0.35 + rand(i, 5) * 0.65 })), [W]);
 
-  const twinkle = useLoop(4000), r1 = useLoop(22000), r2 = useLoop(26000), sweep = useSharedValue(0);
-  useEffect(() => {
-    sweep.value = withRepeat(withTiming(1, { duration: 14000, easing: Easing.inOut(Easing.quad) }), -1, false);
-    return () => cancelAnimation(sweep);
-  }, [sweep]);
+  const twinkle = useLoop(4000), r1 = useLoop(22000), r2 = useLoop(26000);
   const starStyle = useAnimatedStyle(() => ({ opacity: night * 0.95 * (1 - 0.6 * twinkle.value) }));
   const rib1 = useAnimatedStyle(() => ({ transform: [{ translateX: -36 * r1.value }, { translateY: 24 * r1.value }, { rotate: `${-14 + 8 * r1.value}deg` }, { scale: 1 + 0.08 * r1.value }] }));
   const rib2 = useAnimatedStyle(() => ({ transform: [{ translateX: 30 * r2.value }, { translateY: -20 * r2.value }, { rotate: `${18 - 8 * r2.value}deg` }] }));
-  const sweepStyle = useAnimatedStyle(() => {
-    const p = sweep.value;
-    return { opacity: p < 0.3 ? (p / 0.3) * 0.45 : p > 0.7 ? ((1 - p) / 0.3) * 0.45 : 0.45, transform: [{ translateX: W * 1.6 * (-0.6 + 1.2 * p) }, { rotate: '-24deg' }] };
-  });
 
   return (
     <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
@@ -96,10 +88,6 @@ export const Wallpaper = memo(function Wallpaper({ width: W, height: H, hour: hr
       </Animated.View>
       <Animated.View style={[{ position: 'absolute', left: W + 140 - 520, top: H * 0.48 - 50, width: 560, height: 280 }, rib2]}>
         <Svg width={560} height={280}><Glow id="rib2" cx={280} cy={140} rx={280} ry={140} color={mix(bot, top, 0.5)} opacity={0.45} /></Svg>
-      </Animated.View>
-
-      <Animated.View style={[{ position: 'absolute', left: -0.3 * W, top: H * 0.38, width: W * 1.6, height: 70 }, sweepStyle]}>
-        <LinearGradient colors={['rgba(255,255,255,0)', 'rgba(255,255,255,.55)', 'rgba(255,255,255,0)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1, borderRadius: 35 }} />
       </Animated.View>
 
       <Svg width={W} height={H} style={StyleSheet.absoluteFill}>
