@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "Daily",
+    "slug": "polymerase",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.shibamapple.daily",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Daily uses the camera and flash to measure your pulse from your fingertip."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.shibamapple.daily",
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "scheme": "daily",
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
