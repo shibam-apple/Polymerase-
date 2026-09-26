@@ -9,10 +9,11 @@ import { deriveHealth } from '../state/health';
 import { nextItem, parts, progress, readiness, withWater } from '../state/selectors';
 import { useStore } from '../state/store';
 import type { Item } from '../state/types';
-import { C, ink, isNight } from '../theme';
+import { C, ink } from '../theme';
 import { ease, SNAP } from '../theme/motion';
-import { Glass, GlassFill } from '../ui/glass/Glass';
+import { Glass } from '../ui/glass/Glass';
 import { Hairline, PressableScale } from '../ui/controls';
+import { SleepIcon } from '../ui/SleepDial';
 import { T } from '../ui/Text';
 
 const Check = ({ size = 16, color = '#fff', w = 3.2 }: { size?: number; color?: string; w?: number }) => (
@@ -25,7 +26,15 @@ export function Today({ now, hour, onDetails }: { now: Date; hour: number; onDet
   const nx = nextItem(items, s.snoozed), { left } = progress(items);
   const r = readiness(items), d = deriveHealth(s, now);
   const [open, setOpen] = useState<Record<number, boolean>>({ 0: false, 1: true, 2: true });
-  const night = isNight(hour);
+  const clock = (t: number) => { const x = new Date(t); return `${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}`; };
+  // The bedtime toggle, up front: "Going to bed" in the evening, "I'm up" while a night is timed,
+  // and "Log last night" on a morning without one.
+  const asleepH = s.sleepStart != null ? Math.max(0, (now.getTime() - s.sleepStart) / 3600000) : 0;
+  const sleepCta = s.sleepStart != null
+    ? { icon: 'sun' as const, title: 'I’m up', sub: `Asleep since ${clock(s.sleepStart)} · ${Math.floor(asleepH)} h ${Math.round((asleepH % 1) * 60)} m`, go: a.endSleep }
+    : hour >= 20 || hour < 4 ? { icon: 'moon' as const, title: 'Going to bed', sub: 'Tap now, then “I’m up” when you wake', go: a.startSleep }
+    : hour < 12 && !d.sleepToday ? { icon: 'sun' as const, title: 'Log last night', sub: 'Bed and wake times, in two drags', go: () => a.openSheet('sleep', { sleepDraft: null }) }
+    : null;
 
   const scores = [
     { label: 'Recovery', v: d.recovery.score ?? '–' },
@@ -48,6 +57,21 @@ export function Today({ now, hour, onDetails }: { now: Date; hour: number; onDet
 
       {/* One clean window: the next item, then the four scores. */}
       <Glass radius={28} tint={[0.8, 0.5]} angle={160} blur={34} border={0.85} style={{ marginTop: 16 }} innerStyle={{ paddingTop: 18, paddingHorizontal: 18, paddingBottom: 16, gap: 16 }}>
+        {sleepCta && (
+          <PressableScale testID="sleep-toggle" scaleTo={0.97} onPress={sleepCta.go} accessibilityLabel={sleepCta.title}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: -4, padding: 10, paddingRight: 14, borderRadius: 20, backgroundColor: s.sleepStart != null ? C.sleep : 'rgba(110,106,240,.1)' }}>
+            <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: s.sleepStart != null ? 'rgba(255,255,255,.22)' : '#fff' }}>
+              <Svg width={20} height={20} viewBox="0 0 20 20">{sleepCta.icon === 'moon' ? <SleepIcon.Moon x={10} y={10} c={C.sleep} /> : <SleepIcon.Sun x={10} y={10} c={s.sleepStart != null ? '#fff' : '#ff9f0a'} />}</Svg>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T size={16} weight="700" color={s.sleepStart != null ? '#fff' : C.sleep}>{sleepCta.title}</T>
+              <T size={12} numberOfLines={1} color={s.sleepStart != null ? 'rgba(255,255,255,.8)' : undefined} tone="ink2">{sleepCta.sub}</T>
+            </View>
+            {s.sleepStart != null && (
+              <Pressable onPress={a.cancelSleep} hitSlop={10} accessibilityLabel="Cancel sleep timer"><T size={13} weight="600" color="rgba(255,255,255,.85)">Cancel</T></Pressable>
+            )}
+          </PressableScale>
+        )}
         {nx ? (
           <Animated.View key={nx.id} entering={FadeIn.duration(300)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
@@ -75,11 +99,7 @@ export function Today({ now, hour, onDetails }: { now: Date; hour: number; onDet
         </View>
       </Glass>
 
-      {/* Frosted sheet behind the day's lists, so the gaps between cards are blurred too. */}
-      <View style={{ marginTop: 18, paddingTop: 2, paddingHorizontal: 8, paddingBottom: 12 }}>
-        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 34, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,.35)', boxShadow: 'inset 0 1px 1px rgba(255,255,255,.55)' }]}>
-          <GlassFill radius={34} tint={night ? [0.1, 0.1] : [0.18, 0.18]} blur={36} lens={0.35} />
-        </View>
+      <View style={{ marginTop: 6 }}>
         {parts(items).map(p => {
           const isOpen = p.allDone ? !!open[p.index] : open[p.index] !== false;
           const toggle = () => setOpen(o => ({ ...o, [p.index]: !isOpen }));

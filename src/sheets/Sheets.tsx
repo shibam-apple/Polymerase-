@@ -9,11 +9,21 @@ import { useStore } from '../state/store';
 import { C, fill, ink, LONG_NAMES, MOODS, VMETA } from '../theme';
 import { ease, SNAP } from '../theme/motion';
 import { Dot, PressableScale } from '../ui/controls';
+import { SleepDial, SleepIcon } from '../ui/SleepDial';
 import { Slider } from '../ui/Slider';
 import { T } from '../ui/Text';
 import { MoodBlob } from '../viz/MoodBlob';
 
 const APath = Animated.createAnimatedComponent(Path);
+
+/** The Sleep tile is the bedtime toggle: "Going to bed" in the evening, "I'm up" while a night is timed. */
+function sleepTile(start: number | null, a: ReturnType<typeof useStore>['a']) {
+  const h = new Date().getHours();
+  if (start != null) return { title: 'I’m up', sub: `Asleep since ${clock(start)}`, color: C.sleep, go: a.endSleep };
+  if (h >= 18 || h < 4) return { title: 'Going to bed', sub: 'Start timing the night', color: C.sleep, go: a.startSleep };
+  return { title: 'Sleep', sub: 'Log last night', color: C.sleep, go: () => a.openSheet('sleep', { sleepDraft: null }) };
+}
+const clock = (t: number) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
 export function QuickSheet() {
   const { s, a } = useStore();
@@ -23,10 +33,10 @@ export function QuickSheet() {
     { title: 'Mood', sub: 'How are you?', color: C.mind, go: () => a.openSheet('mood', { moodFor: firstMind?.id ?? null }) },
     { title: 'Water', sub: `${s.water} of 8 · +1`, color: '#32ade6', go: () => a.addWater(true) },
     { title: 'Meds', sub: dueMeds.length ? `${dueMeds.length} due now` : 'Next at 19:00', color: C.med, go: () => { a.closeSheet(); if (dueMeds.length) a.setDone(dueMeds.map(i => i.id), true, `${dueMeds.map(i => i.title).join(', ')} logged`); else a.toast('No doses due now'); } },
-    { title: 'Sleep', sub: 'Last night', color: C.sleep, go: () => a.openSheet('sleep') },
+    sleepTile(s.sleepStart, a),
     { title: 'Meditated', sub: '10 min', color: C.habit, go: () => { a.closeSheet(); a.setDone([7], true, 'Meditate logged'); } },
-    { title: 'Blood pressure', sub: `Last ${s.vitals.bp.v.join('/')}`, color: VMETA.bp.color, go: () => a.openVital('bp') },
-    { title: 'Weight', sub: `Last ${s.vitals.weight.v[0].toFixed(1)} kg`, color: VMETA.weight.color, go: () => a.openVital('weight') },
+    { title: 'Blood pressure', sub: s.vitals.bp.v.length === 2 ? `Last ${s.vitals.bp.v.join('/')}` : 'Not logged yet', color: VMETA.bp.color, go: () => a.openVital('bp') },
+    { title: 'Weight', sub: s.vitals.weight.v.length ? `Last ${s.vitals.weight.v[0].toFixed(1)} kg` : 'Not logged yet', color: VMETA.weight.color, go: () => a.openVital('weight') },
   ];
   return (
     <View style={{ gap: 14 }}>
@@ -260,41 +270,52 @@ function Stepper({ label, value, onStep }: { label: string; value: string; onSte
 }
 
 const QUALITY = ['Poor', 'Fair', 'OK', 'Good', 'Great'];
-const toMin = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
-const toHHMM = (min: number) => { const m = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
 
-/** Log last night: bedtime and wake time in 15-minute steps, plus how it felt. */
+/**
+ * Log a night on a 24 h dial (drag the moon and the sun), then how it felt. Prefilled from the
+ * "Going to bed" / "I'm up" taps when those were used, otherwise from the previous night.
+ */
 export function SleepSheet() {
   const { s, a } = useStore();
   const prev = s.sleepLog[s.sleepLog.length - 1];
-  const [bed, setBed] = useState(prev?.bed ?? '23:00');
-  const [wake, setWake] = useState(prev?.wake ?? '07:00');
+  const draft = s.sleepDraft;
+  const [bed, setBed] = useState(draft?.bed ?? prev?.bed ?? '23:00');
+  const [wake, setWake] = useState(draft?.wake ?? prev?.wake ?? '07:00');
   const [quality, setQuality] = useState(prev?.quality ?? 3);
-  const hours = sleepHours(bed, wake);
+  const hours = sleepHours(bed, wake), target = s.profile.sleepTargetH;
   return (
     <View style={{ gap: 12 }}>
       <View>
-        <T size={21} weight="700" track={-0.02}>Last night</T>
-        <T size={13} tone="ink2">Feeds your recovery score and health age</T>
+        <T size={21} weight="700" track={-0.02}>{draft ? 'Good morning' : 'Last night'}</T>
+        <T size={13} tone="ink2">{draft ? 'Check the times, then how you slept' : 'Drag the moon and the sun to your bed and wake times'}</T>
       </View>
-      <View style={{ alignItems: 'center', paddingVertical: 6 }}>
-        <T size={44} weight="700" track={-0.04} tabular>{fmtHours(hours)}</T>
-        <T size={13} tone="ink3">your target is {s.profile.sleepTargetH} h</T>
+      <View style={{ alignItems: 'center', paddingVertical: 4 }}>
+        <SleepDial bed={bed} wake={wake} onChange={(b, w) => { setBed(b); setWake(w); }} />
+        <T size={13} tone="ink3" style={{ marginTop: 6 }}>{hours >= target ? `Met your ${target} h goal` : `${fmtHours(target - hours)} short of your ${target} h goal`}</T>
       </View>
-      <Stepper label="Went to sleep" value={bed} onStep={d => setBed(b => toHHMM(toMin(b) + d * 15))} />
-      <Stepper label="Woke up" value={wake} onStep={d => setWake(w => toHHMM(toMin(w) + d * 15))} />
-      <T size={13} weight="600" tone="ink2" style={{ marginTop: 4 }}>How did you sleep?</T>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        {([['Bedtime', bed, 'moon'], ['Wake up', wake, 'sun']] as const).map(([label, v, icon]) => (
+          <View key={label} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 16, backgroundColor: fill.quaternary }}>
+            <Svg width={20} height={20} viewBox="0 0 20 20">{icon === 'moon' ? <SleepIcon.Moon x={10} y={10} c={C.sleep} /> : <SleepIcon.Sun x={10} y={10} c="#ff9f0a" />}</Svg>
+            <View>
+              <T size={12} tone="ink2">{label}</T>
+              <T size={19} weight="700" tabular>{v}</T>
+            </View>
+          </View>
+        ))}
+      </View>
+      <T size={13} weight="600" tone="ink2" style={{ marginTop: 2 }}>How did you sleep?</T>
       <View style={{ flexDirection: 'row', gap: 6 }}>
         {QUALITY.map((q, i) => {
           const on = quality === i + 1;
           return (
-            <PressableScale key={q} onPress={() => setQuality(i + 1)} accessibilityState={{ selected: on }} style={{ flex: 1, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? ink[1] : fill.tertiary }}>
+            <PressableScale key={q} onPress={() => setQuality(i + 1)} accessibilityState={{ selected: on }} style={{ flex: 1, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.sleep : fill.tertiary }}>
               <T size={13} weight="600" color={on ? '#fff' : ink[1]}>{q}</T>
             </PressableScale>
           );
         })}
       </View>
-      <PressableScale scaleTo={0.97} onPress={() => a.saveSleep({ date: dayKey(), bed, wake, hours, quality })} style={{ marginTop: 8, height: 52, borderRadius: 26, backgroundColor: ink[1], alignItems: 'center', justifyContent: 'center' }}>
+      <PressableScale scaleTo={0.97} onPress={() => a.saveSleep({ date: draft?.date ?? dayKey(), bed, wake, hours, quality })} style={{ marginTop: 6, height: 52, borderRadius: 26, backgroundColor: ink[1], alignItems: 'center', justifyContent: 'center' }}>
         <T size={17} weight="600" color="#fff">Save</T>
       </PressableScale>
     </View>

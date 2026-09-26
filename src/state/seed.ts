@@ -34,6 +34,8 @@ export function seedState(now = Date.now()): State {
     heartLog: [],
     sleepLog: [],
     profile: { age: null, sex: null, heightCm: null, sleepTargetH: 8 },
+    sleepStart: null,
+    sleepDraft: null,
     items: seedItems(),
   };
 }

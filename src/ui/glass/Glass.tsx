@@ -51,12 +51,17 @@ const hexA = (a: number) => Math.round(Math.max(0, Math.min(1, a)) * 255).toStri
  * The glass fill for one surface, per tier. Used by cards (`Glass`), the tab bar and sheets.
  * On `liquid`, the shader tints the glass itself, so only a faint sheen is layered on top.
  */
-export function GlassFill({ radius, tint, angle = 135, blur = 24, backdrop = 'wallpaper', lens = 1 }: { radius: number; tint: [number, number]; angle?: 135 | 160; blur?: number; backdrop?: BackdropKind; lens?: number }) {
+export function GlassFill({ radius, tint, angle = 135, blur = 24, backdrop = 'wallpaper', lens = 1, clear }: {
+  radius: number; tint: [number, number]; angle?: 135 | 160; blur?: number; backdrop?: BackdropKind; lens?: number;
+  /** Liquid tier only: clear glass (no frost, faint tint, stronger refraction and dispersion). `tint` still applies to the fallbacks. */
+  clear?: { tint: number; dispersion?: number };
+}) {
   const tag = useBackdropTag(backdrop);
   const end = angle === 160 ? { x: 0.34, y: 1 } : { x: 1, y: 1 };
   const avg = (tint[0] + tint[1]) / 2;
   if (NATIVE_GLASS && LiquidGlassView) {
     const liquid = GLASS_TIER === 'liquid';
+    const isClear = liquid && !!clear;
     return (
       <>
         <LiquidGlassView
@@ -64,13 +69,13 @@ export function GlassFill({ radius, tint, angle = 135, blur = 24, backdrop = 'wa
           backdropTag={tag}
           cornerRadius={radius}
           refraction={liquid ? 1.1 * lens : 0}
-          dispersion={0.35}
+          dispersion={isClear ? clear!.dispersion ?? 0.5 : 0.35}
           bevel={Math.min(22, radius * 0.9)}
-          frost={liquid ? 2 : blur * 0.6}
-          specular={0.7}
-          tint={`#${hexA(liquid ? avg * 0.75 : avg)}FFFFFF`}
+          frost={isClear ? 0 : liquid ? 2 : blur * 0.6}
+          specular={isClear ? 0.9 : 0.7}
+          tint={`#${hexA(isClear ? clear!.tint : liquid ? avg * 0.75 : avg)}FFFFFF`}
         />
-        <LinearGradient colors={['rgba(255,255,255,.16)', 'rgba(255,255,255,0)', 'rgba(255,255,255,.05)']} locations={[0, 0.45, 1]} start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 1 }} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={[`rgba(255,255,255,${isClear ? 0.1 : 0.16})`, 'rgba(255,255,255,0)', 'rgba(255,255,255,.05)']} locations={[0, 0.45, 1]} start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 1 }} style={StyleSheet.absoluteFill} />
       </>
     );
   }
@@ -88,32 +93,31 @@ export function GlassFill({ radius, tint, angle = 135, blur = 24, backdrop = 'wa
 
 export type GlassProps = {
   radius: number;
-  /** Top-left and bottom-right white alpha of the tint (design: .72→.42, .66→.34, .8→.5). */
+  /** Kept for call sites written against the design's glass cards; content cards now render flat. */
   tint?: [number, number];
-  /** 135deg for most cards, 160deg for the hero cards. */
   angle?: 135 | 160;
   blur?: number;
   border?: number;
   shadow?: boolean;
-  /** Plain frosted fill even where live glass is available (dense lists; saves GPU). */
-  flat?: boolean;
   style?: StyleProp<ViewStyle>;
   innerStyle?: StyleProp<ViewStyle>;
   children?: ReactNode;
   testID?: string;
 };
 
-export function Glass({ radius, tint = [0.72, 0.42], angle = 135, blur = 24, border = 0.75, shadow = true, flat, style, innerStyle, children, testID }: GlassProps) {
+/** Opaque, so nothing on the wallpaper (the moon, glows) shows through a card. */
+export const CARD_BG = '#ffffff';
+export const CARD_BORDER = 'rgba(60,60,67,.1)';
+export const CARD_SHADOW = '0 6px 20px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04)';
+
+/**
+ * A normal content card: solid and light, hairline border, soft shadow. Liquid glass is reserved for
+ * the navigation (tab bar, + button) so text on cards is always legible, day or night.
+ */
+export function Glass({ radius, shadow = true, style, innerStyle, children, testID }: GlassProps) {
   return (
-    <View testID={testID} style={[{ borderRadius: radius, boxShadow: shadow ? GLASS_DROP : undefined }, style]}>
-      <View style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: 'hidden' }]} pointerEvents="none">
-        {flat ? (
-          <LinearGradient colors={[`rgba(255,255,255,${Math.min(0.9, tint[0] + 0.1)})`, `rgba(255,255,255,${Math.min(0.8, tint[1] + 0.2)})`]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-        ) : (
-          <GlassFill radius={radius} tint={tint} angle={angle} blur={blur} />
-        )}
-      </View>
-      <View style={[{ borderRadius: radius, borderWidth: 1, borderColor: `rgba(255,255,255,${border})`, boxShadow: GLASS_EDGE }, innerStyle]}>
+    <View testID={testID} style={[{ borderRadius: radius, backgroundColor: CARD_BG, borderWidth: StyleSheet.hairlineWidth, borderColor: CARD_BORDER, boxShadow: shadow ? CARD_SHADOW : undefined }, style]}>
+      <View style={[{ borderRadius: radius }, innerStyle]}>
         <InkProvider value={DAY_INK}>{children}</InkProvider>
       </View>
     </View>

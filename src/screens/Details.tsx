@@ -15,7 +15,7 @@ import { ease, SNAP } from '../theme/motion';
 import { Bar, Dot, PressableScale, useCountUp } from '../ui/controls';
 import { Glass } from '../ui/glass/Glass';
 import { T } from '../ui/Text';
-import { Waveform } from '../viz/charts';
+import { Sparkline, Waveform } from '../viz/charts';
 import { FlameCapsule } from '../viz/FlameCapsule';
 
 const ACircle = Animated.createAnimatedComponent(Circle);
@@ -247,6 +247,7 @@ function HeartCard({ onOpen }: { onOpen: () => void }) {
   const latest = s.heartLog.length ? s.heartLog[s.heartLog.length - 1] : null;
   const bpm = measuring ? L.hr : latest?.hr ?? null;
   const hrv = measuring ? L.rmssd : latest?.rmssd ?? null;
+  const spark = measuring ? [] : s.heartLog.slice(-7).map(x => x.rmssd);
   const [traceW, setTraceW] = useState(0);
   const press = useSharedValue(1);
   const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: press.value }] }));
@@ -263,6 +264,7 @@ function HeartCard({ onOpen }: { onOpen: () => void }) {
   const blocked = h.diag.permission === 'blocked' || h.diag.permission === 'denied';
   const left = Math.max(0, Math.round(60 - L.contactSec));
   const hint = !measuring ? (latest ? 'Hold the capsule to measure again' : 'Hold the capsule, then rest a fingertip over the rear camera and flash')
+    : h.diag.torch === 'failed' && L.contactSec < 1 ? 'Flash didn’t turn on · tap to stop, then hold to try again'
     : L.status === 'starting' ? 'Starting the camera…'
     : L.status === 'no-contact' ? 'Cover the lens and flash fully · timer paused'
     : L.status === 'error' ? 'Camera problem, see status below'
@@ -304,7 +306,10 @@ function HeartCard({ onOpen }: { onOpen: () => void }) {
               <T size={13} weight="500" tone="ink3">bpm</T>
             </View>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-              <View style={{ paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10, backgroundColor: accent.hrvBg }}><T size={12} weight="600" tabular color={accent.hrv}>HRV {hrv != null ? `${hrv} ms` : '–'}</T></View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10, backgroundColor: accent.hrvBg }}>
+                <T size={12} weight="600" tabular color={accent.hrv}>HRV {hrv != null ? `${hrv} ms` : '–'}</T>
+                {spark.length >= 2 && <Sparkline data={spark} color={accent.hrv} width={44} height={16} />}
+              </View>
               {measuring && L.score != null && <View style={{ paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10, backgroundColor: fill.tertiary }}><T size={12} weight="600" tabular tone="ink2">Signal {L.score}</T></View>}
             </View>
             <T size={12} tone="ink2" lh={1.3}>{hint}</T>

@@ -1,3 +1,8 @@
+import { Platform } from 'react-native';
+
+/** SVG text on web falls back to a serif face; give it the system sans like the rest of the UI. */
+export const SVG_FONT = Platform.OS === 'web' ? '-apple-system, system-ui, Roboto, "Segoe UI", sans-serif' : undefined;
+
 export type Pillar = 'med' | 'mind' | 'sleep' | 'habit';
 export const PILLARS: Pillar[] = ['med', 'mind', 'sleep', 'habit'];
 

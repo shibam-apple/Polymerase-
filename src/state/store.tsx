@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRedu
 import { Platform } from 'react-native';
 import { MOODS, VMETA, type Pillar, type VitalKey } from '../theme';
 import type { Profile } from '../health/healthAge';
-import { fmtHours } from './health';
+import { fmtHours, nightFromTimes } from './health';
 import { dayKey, seedItems, seedState } from './seed';
 import { fmtVital, REP_DEFS } from './selectors';
 import type { HeartEntry, Item, SheetKind, SleepEntry, State, Tab } from './types';
@@ -19,9 +19,9 @@ type Action =
   | { type: 'hydrate'; saved: Persisted };
 
 /** The parts of state that survive restarts. The checklist only for the day it belongs to. */
-type Persisted = Pick<State, 'heartLog' | 'sleepLog' | 'profile' | 'vitals' | 'items' | 'water' | 'day' | 'rep'>;
+type Persisted = Pick<State, 'heartLog' | 'sleepLog' | 'profile' | 'vitals' | 'items' | 'water' | 'day' | 'rep' | 'sleepStart'>;
 const STORAGE_KEY = 'daily:v2';
-const persistedOf = (s: State): Persisted => ({ heartLog: s.heartLog, sleepLog: s.sleepLog, profile: s.profile, vitals: s.vitals, items: s.items, water: s.water, day: s.day, rep: s.rep });
+const persistedOf = (s: State): Persisted => ({ heartLog: s.heartLog, sleepLog: s.sleepLog, profile: s.profile, vitals: s.vitals, items: s.items, water: s.water, day: s.day, rep: s.rep, sleepStart: s.sleepStart });
 
 /** Mark the Sleep row done with the logged duration when a night for today exists. */
 function withSleepItem(items: Item[], sleepLog: SleepEntry[], today: string): Item[] {
@@ -50,7 +50,7 @@ function reducer(s: State, a: Action): State {
     }
     case 'sleepSaved': {
       const sleepLog = [...s.sleepLog.filter(x => x.date !== a.entry.date), a.entry].sort((x, y) => (x.date < y.date ? -1 : 1)).slice(-400);
-      return { ...s, sleepLog, sheet: null, pop: 1, items: withSleepItem(s.items, sleepLog, s.day) };
+      return { ...s, sleepLog, sheet: null, pop: 1, sleepDraft: null, items: withSleepItem(s.items, sleepLog, s.day) };
     }
     case 'hydrate': {
       const today = dayKey();
@@ -61,6 +61,7 @@ function reducer(s: State, a: Action): State {
         ...s, ...a.saved, sleepLog, day: today, water: sameDay ? a.saved.water ?? 0 : 0, snoozed: [],
         items: withSleepItem(items, sleepLog, today),
         profile: { ...s.profile, ...(a.saved.profile ?? {}) },
+        sleepStart: a.saved.sleepStart ?? null,
       };
     }
   }
@@ -130,6 +131,18 @@ function useActions(s: State, dispatch: (a: Action) => void) {
       saveVital: (k: VitalKey, v: number[]) => { dispatch({ type: 'vitalSaved', key: k, v }); patch({ sheet: null }); tap('success'); toast(`${VMETA[k].name} · ${fmtVital(k, v)} saved`); },
       saveHeart: (e: HeartEntry) => { dispatch({ type: 'heartSaved', entry: e }); tap('success'); toast(`Saved · ${e.hr} bpm · HRV ${e.rmssd} ms`); },
       saveSleep: (e: SleepEntry) => { dispatch({ type: 'sleepSaved', entry: e }); tap('success'); toast(`Sleep · ${fmtHours(e.hours)} logged`); },
+      /** "Going to bed": start timing the night. */
+      startSleep: () => { patch({ sleepStart: Date.now(), sheet: null }); tap(); toast('Good night · tap “I’m up” when you wake'); },
+      /** "I'm up": turn the timed night into a prefilled sleep sheet (one tap on quality saves it). */
+      endSleep: () => {
+        const start = latest.current.sleepStart;
+        if (start == null) { patch({ sheet: 'sleep' }); return; }
+        const n = nightFromTimes(start, Date.now());
+        tap();
+        patch({ sleepStart: null, sheet: 'sleep', sleepDraft: n.stale ? null : { bed: n.bed, wake: n.wake, date: n.date } });
+        if (n.stale) toast('That bedtime was over 16 h ago · set the times');
+      },
+      cancelSleep: () => { patch({ sleepStart: null }); toast('Sleep timer cancelled'); },
       saveProfile: (p: Profile) => { patch({ profile: p, sheet: null }); tap('success'); toast('Profile saved'); },
       undo: () => {
         const ids = latest.current.toast?.undo;

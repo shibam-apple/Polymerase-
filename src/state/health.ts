@@ -62,6 +62,23 @@ export function deriveHealth(s: State, now = new Date()): Derived {
 /** "7 h 12 m" */
 export const fmtHours = (h: number) => `${Math.floor(h)} h ${String(Math.round((h - Math.floor(h)) * 60)).padStart(2, '0')} m`;
 
+const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+/** Longest a timed night can be before it's treated as a forgotten "Going to bed". */
+export const MAX_NIGHT_H = 16;
+
+/**
+ * A night from the "Going to bed" and "I'm up" taps: clock times rounded to 5 minutes, dated to the
+ * wake-up day. `stale` when the start is too old to be one night (forgotten tap).
+ */
+export function nightFromTimes(start: number, end: number): { date: string; bed: string; wake: string; hours: number; stale: boolean } {
+  const r5 = (t: number) => Math.round(t / 300000) * 300000;
+  const b = new Date(r5(start)), w = new Date(r5(end));
+  const bed = hhmm(b), wake = hhmm(w);
+  const stale = end - start > MAX_NIGHT_H * 3600000 || end <= start;
+  return { date: dayKey(w), bed, wake, hours: stale ? sleepHours(bed, wake) : Math.round(((w.getTime() - b.getTime()) / 3600000) * 100) / 100, stale };
+}
+
 /** Hours between two "HH:MM" clock times, crossing midnight when wake < bed. */
 export function sleepHours(bed: string, wake: string): number {
   const [bh, bm] = bed.split(':').map(Number), [wh, wm] = wake.split(':').map(Number);

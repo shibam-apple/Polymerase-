@@ -45,6 +45,10 @@ export type State = {
   heartLog: HeartEntry[];
   sleepLog: SleepEntry[];
   profile: Profile;
+  /** When "Going to bed" was tapped (ms), while a night is being timed. */
+  sleepStart: number | null;
+  /** Prefill for the sleep sheet (from "I'm up"); cleared when the sheet saves. */
+  sleepDraft: { bed: string; wake: string; date: string } | null;
   /** Local date (YYYY-MM-DD) the day's schedule belongs to; a new day resets the checklist. */
   day: string;
   filter: 'all' | Pillar;

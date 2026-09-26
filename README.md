@@ -116,9 +116,12 @@ What the AGSL shader does:
 - Adds per-channel dispersion (chromatic aberration), a specular key light on the rim, a crisp 1 px edge and a Fresnel-style edge glow.
 - Cost per pixel: 3 backdrop samples plus 3 distance evaluations.
 
-Backdrops:
-- Cards refract the wallpaper.
-- The tab bar and sheets refract the wallpaper *and* the content scrolling under them.
+Where glass is used:
+- Only the **navigation**: the tab bar and the + button.
+  - On the `liquid` tier they are *clear* glass: no frost, an 8% tint, and stronger refraction and dispersion, so the content scrolling underneath stays sharp and bends at the rim.
+  - Labels get a soft white halo to stay legible.
+- Content cards are **normal cards**: opaque white, a hairline border and a soft shadow, legible on the day and night wallpapers.
+- Sheets use a near-opaque frosted panel.
 - A glass view never refracts a backdrop that contains it.
 
 ## Recovery and health age
@@ -146,6 +149,17 @@ Backdrops:
   - The 60 s timer only counts while your fingertip covers the lens.
   - A reading is saved only with at least 40 clean beats and non-poor quality.
   - A status line shows exactly what the camera is doing, with *Share diagnostics*.
+  - The torch is switched on *after* the camera session reports it has started, with retries and a 2 s watchdog.
+    - Applying it together with the start fails on some phones ("Camera is not active"). That made every retest after the first measurement run in the dark.
+  - The frame format that worked is remembered for later sessions.
+- **Heart trends** (`Details → Heart rate · HRV`)
+  - One clean chart per metric: a smooth line with one dot per morning, three gridlines, weekday initials, and your normal band.
+  - Tap or drag a chart to read any day.
+  - The latest session shows heart rate, HRV and breathing; the technical detail (SDNN, perfusion, tachogram, Poincaré) sits behind *Details*.
+- **Sleep** (`src/ui/SleepDial.tsx`)
+  - **Going to bed** / **I'm up** toggle at the top of Today, and in Quick log.
+  - "I'm up" opens a 24 h dial prefilled with the timed night: drag the moon (bedtime), the sun (wake-up) or the arc (the whole night), in 5-minute steps.
+  - A start more than 16 h old is treated as forgotten.
 
 ## Install the test build on your phone
 

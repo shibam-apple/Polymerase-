@@ -3,7 +3,10 @@ import { PermissionsAndroid, Platform } from 'react-native';
 import { useCamera, useCameraPermission, useFrameOutput, CommonResolutions, type Frame } from 'react-native-vision-camera';
 import { scheduleOnRN } from 'react-native-worklets';
 import type { PpgSample, SourceStatus } from '../sources';
-import { INITIAL_DIAG, type CameraDiag } from './diag';
+import { firstLine, INITIAL_DIAG, type CameraDiag } from './diag';
+
+/** The frame format that last delivered frames; retests start with it instead of re-probing. */
+let preferredFormat: 'rgb' | 'yuv' = 'rgb';
 
 export type CameraPpgCaptureProps = {
   active: boolean;
@@ -39,7 +42,8 @@ async function ensurePermission(fallback: () => Promise<boolean>): Promise<Camer
 export function CameraPpgCapture({ active, onSample, onStatus, onDiag }: CameraPpgCaptureProps) {
   const vcPermission = useCameraPermission();
   const [granted, setGranted] = useState(false);
-  const [format, setFormat] = useState<'rgb' | 'yuv'>('rgb');
+  const [format, setFormat] = useState<'rgb' | 'yuv'>(preferredFormat);
+  const [started, setStarted] = useState(false);
   const diag = useRef<CameraDiag>({ ...INITIAL_DIAG });
   const unit = useRef<{ scale: number; last: number | null; t0: number | null; lastReport: number }>({ scale: 0, last: null, t0: null, lastReport: 0 });
 
@@ -52,7 +56,7 @@ export function CameraPpgCapture({ active, onSample, onStatus, onDiag }: CameraP
   useEffect(() => {
     if (!active) return;
     unit.current = { scale: 0, last: null, t0: null, lastReport: 0 };
-    diag.current = { ...INITIAL_DIAG, format };
+    diag.current = { ...INITIAL_DIAG, format: preferredFormat };
     onStatus('starting');
     let cancelled = false;
     ensurePermission(() => vcPermission.requestPermission())
@@ -62,19 +66,19 @@ export function CameraPpgCapture({ active, onSample, onStatus, onDiag }: CameraP
         setGranted(p === 'granted');
         if (p !== 'granted') onStatus('error');
       })
-      .catch(e => { if (!cancelled) { report({ lastError: `permission: ${String(e?.message ?? e)}` }); onStatus('error'); } });
+      .catch(e => { if (!cancelled) { report({ lastError: `permission: ${firstLine(e)}` }); onStatus('error'); } });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
-  // No frames 2.5 s after the camera should be running → retry with YUV.
+  // The session started but no frames 4 s later → retry with YUV (remembered for later sessions).
   useEffect(() => {
-    if (!active || !granted || format === 'yuv') return;
+    if (!active || !started || format === 'yuv') return;
     const id = setTimeout(() => {
-      if (diag.current.frames === 0) { report({ format: 'yuv', lastError: 'no RGB frames after 2.5 s, retrying in YUV' }); setFormat('yuv'); }
-    }, 2500);
+      if (diag.current.frames === 0) { preferredFormat = 'yuv'; report({ format: 'yuv', lastError: 'no RGB frames after 4 s, retrying in YUV' }); setFormat('yuv'); }
+    }, 4000);
     return () => clearTimeout(id);
-  }, [active, granted, format, report]);
+  }, [active, started, format, report]);
 
   const receive = useCallback((ts: number, r: number, g: number, b: number, cv: number, fmt: string) => {
     const u = unit.current;
@@ -86,6 +90,7 @@ export function CameraPpgCapture({ active, onSample, onStatus, onDiag }: CameraP
     u.last = ts;
     const d = diag.current;
     d.frames++;
+    if (d.frames === 1) preferredFormat = d.format;
     if (u.scale === 0) return;
     if (u.t0 == null) u.t0 = ts;
     const t = (ts - u.t0) * u.scale;
@@ -143,25 +148,71 @@ export function CameraPpgCapture({ active, onSample, onStatus, onDiag }: CameraP
     isActive: active && granted,
     device: 'back',
     outputs: [frameOutput],
-    torchMode: active && granted ? 'on' : 'off',
+    // No declarative torchMode: VisionCamera applies it before a restarted session is running, which
+    // fails ("Camera is not active") and is never retried. The torch is driven from onStarted instead.
     constraints: [{ fps: 30 }],
-    onStarted: () => report({ started: true }),
-    onError: e => { report({ lastError: String(e?.message ?? e).slice(0, 200) }); onStatus('error'); },
+    onStarted: () => { report({ started: true }); setStarted(true); },
+    onStopped: () => setStarted(false),
+    onError: e => {
+      report({ lastError: firstLine(e) });
+      // A hiccup after frames are flowing isn't fatal; frames + contact decide the status from here.
+      if (diag.current.frames === 0) onStatus('error');
+    },
   });
+  const ctrl = useRef(controller);
+  useEffect(() => { ctrl.current = controller; }, [controller]);
 
-  // Lock exposure / white balance / focus ~2.5 s after the torch comes on, once auto-exposure has
-  // converged on the lit fingertip. Each lock is optional; unsupported devices just keep auto.
+  // Torch on once the session is running, with retries and a watchdog (interruptions and output
+  // reconfigures turn it off). Exposure / white balance / focus lock 2.5 s after the torch is confirmed
+  // on, once auto-exposure has converged on the lit fingertip; each lock is optional.
   useEffect(() => {
-    if (!active || !granted || !controller) return;
-    const id = setTimeout(async () => {
+    if (!active || !granted || !started) return;
+    let cancelled = false, busy = false, locked = false;
+    let lockTimer: ReturnType<typeof setTimeout> | null = null;
+    const wait = (ms: number) => new Promise(res => setTimeout(res, ms));
+    const lock = async () => {
+      const c = ctrl.current;
+      if (cancelled || !c) return;
       const res: Partial<CameraDiag> = {};
-      for (const [k, fn] of [['aeLocked', () => controller.lockCurrentExposure()], ['awbLocked', () => controller.lockCurrentWhiteBalance()], ['afLocked', () => controller.lockCurrentFocus()]] as const) {
+      for (const [k, fn] of [['aeLocked', () => c.lockCurrentExposure()], ['awbLocked', () => c.lockCurrentWhiteBalance()], ['afLocked', () => c.lockCurrentFocus()]] as const) {
         try { await fn(); res[k] = true; } catch { res[k] = false; }
       }
-      report(res);
-    }, 2500);
-    return () => clearTimeout(id);
-  }, [active, granted, controller, report]);
+      if (!cancelled) report(res);
+    };
+    const ensureTorch = async () => {
+      if (busy) return;
+      busy = true;
+      let err = '';
+      for (let i = 0; i < 5 && !cancelled; i++) {
+        const c = ctrl.current;
+        try {
+          if (c) {
+            await c.setTorchMode('on');
+            if (c.torchMode === 'on') {
+              if (!cancelled) report({ torch: 'on' });
+              if (!locked) { locked = true; lockTimer = setTimeout(lock, 2500); }
+              busy = false;
+              return;
+            }
+          }
+        } catch (e) { err = firstLine(e); }
+        await wait(400);
+      }
+      if (!cancelled) report({ torch: 'failed', lastError: err ? `torch: ${err}` : 'torch did not turn on' });
+      busy = false;
+    };
+    ensureTorch();
+    const watchdog = setInterval(() => {
+      const c = ctrl.current;
+      if (c && c.torchMode !== 'on') ensureTorch();
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(watchdog);
+      if (lockTimer) clearTimeout(lockTimer);
+      ctrl.current?.setTorchMode('off').catch(() => {});
+    };
+  }, [active, granted, started, report]);
 
   return null;
 }
