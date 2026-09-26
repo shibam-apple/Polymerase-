@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, ZoomIn } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
@@ -105,6 +106,9 @@ export function Report({ now }: { now: Date }) {
         )}
         <T size={17} weight="600" color={btn.fg}>{btn.label}</T>
       </PressableScale>
+      <T size={11} tone="ink3" center style={{ marginTop: 18 }}>
+        Test build {String(Constants.expoConfig?.extra?.build ?? 'dev')} · {String(Constants.expoConfig?.extra?.commit ?? 'local')}
+      </T>
     </View>
   );
 }

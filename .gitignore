@@ -40,3 +40,6 @@ yarn-error.*
 /ios
 /android
 public/canvaskit.wasm
+
+# test-only signing key (public on purpose, see credentials/README.md)
+!credentials/test-release.jks

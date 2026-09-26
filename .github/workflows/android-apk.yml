@@ -1,0 +1,66 @@
+name: Android test APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}
+      GIT_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install
+        run: npm ci
+
+      - name: Test and typecheck
+        run: |
+          npx jest --ci
+          npx tsc --noEmit
+
+      - name: Generate native Android project
+        run: npx expo prebuild -p android --no-install --clean
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build release APK (arm64)
+        working-directory: android
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
+
+      - name: Publish to the test-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK="Daily-test-${BUILD_NUMBER}.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "$APK"
+          printf '{"build":%s,"commit":"%s","apk":"%s"}\n' "$BUILD_NUMBER" "${GIT_SHA:0:7}" "$APK" > version.json
+          MSG=$(git log -1 --pretty=%s)
+          gh release delete test-latest --yes --cleanup-tag || true
+          gh release create test-latest "$APK" version.json \
+            --prerelease --target "$GIT_SHA" \
+            --title "Daily test build ${BUILD_NUMBER}" \
+            --notes "Build ${BUILD_NUMBER} · ${GIT_SHA:0:7} · ${MSG}
+
+          Open this page on your Android phone, tap **${APK}**, then Install. Test build, not a medical device."
