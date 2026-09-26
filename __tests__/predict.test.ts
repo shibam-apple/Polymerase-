@@ -76,3 +76,13 @@ it('sorts alerts before watches', () => {
   const out = predict({ days, prior, sleepTargetH: 8, bedtimes: [], bp: [], now: Date.now(), today: key(15) });
   expect(out[0].level).toBe('alert');
 });
+
+describe('night breathing flag', () => {
+  const { breathingFlag } = jest.requireActual('../src/health/predict');
+  it('flags a clear rise in sleeping breathing rate', () => {
+    expect(breathingFlag([14.1, 13.9, 14.2, 14.0, 16.4])?.id).toBe('breathing-up');
+  });
+  it('ignores normal night-to-night variation', () => {
+    expect(breathingFlag([14.1, 13.9, 14.2, 14.0, 14.6])).toBeNull();
+  });
+});

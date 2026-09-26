@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 import { MOODS, VMETA, type Pillar, type VitalKey } from '../theme';
 import type { Profile } from '../health/healthAge';
 import { fmtHours, nightFromTimes } from './health';
+import { finishSonarNight, startSonarNight, stopSonar } from '../sleep/sonarNight';
 import { dayKey, seedItems, seedState } from './seed';
 import { fmtVital, REP_DEFS } from './selectors';
 import type { HeartEntry, Item, Page, SheetKind, SleepEntry, State, Tab } from './types';
@@ -19,9 +20,9 @@ type Action =
   | { type: 'hydrate'; saved: Persisted };
 
 /** The parts of state that survive restarts. The checklist only for the day it belongs to. */
-type Persisted = Pick<State, 'heartLog' | 'sleepLog' | 'profile' | 'vitals' | 'items' | 'water' | 'day' | 'rep' | 'sleepStart' | 'bpLog' | 'sleepMethod'>;
+type Persisted = Pick<State, 'heartLog' | 'sleepLog' | 'profile' | 'vitals' | 'items' | 'water' | 'day' | 'rep' | 'sleepStart' | 'bpLog' | 'sleepMethod' | 'sonarRun' | 'sonarNights'>;
 const STORAGE_KEY = 'daily:v2';
-const persistedOf = (s: State): Persisted => ({ heartLog: s.heartLog, sleepLog: s.sleepLog, profile: s.profile, vitals: s.vitals, items: s.items, water: s.water, day: s.day, rep: s.rep, sleepStart: s.sleepStart, bpLog: s.bpLog, sleepMethod: s.sleepMethod });
+const persistedOf = (s: State): Persisted => ({ heartLog: s.heartLog, sleepLog: s.sleepLog, profile: s.profile, vitals: s.vitals, items: s.items, water: s.water, day: s.day, rep: s.rep, sleepStart: s.sleepStart, bpLog: s.bpLog, sleepMethod: s.sleepMethod, sonarRun: s.sonarRun, sonarNights: s.sonarNights });
 
 /** Mark the Sleep row done with the logged duration when a night for today exists. */
 function withSleepItem(items: Item[], sleepLog: SleepEntry[], today: string): Item[] {
@@ -65,6 +66,8 @@ function reducer(s: State, a: Action): State {
         sleepStart: a.saved.sleepStart ?? null,
         bpLog: a.saved.bpLog ?? [],
         sleepMethod: a.saved.sleepMethod ?? 'timer',
+        sonarRun: a.saved.sonarRun ?? null,
+        sonarNights: a.saved.sonarNights ?? [],
       };
     }
   }
@@ -135,17 +138,50 @@ function useActions(s: State, dispatch: (a: Action) => void) {
       saveHeart: (e: HeartEntry) => { dispatch({ type: 'heartSaved', entry: e }); tap('success'); toast(`Saved · ${e.hr} bpm · HRV ${e.rmssd} ms`); },
       saveSleep: (e: SleepEntry) => { dispatch({ type: 'sleepSaved', entry: e }); tap('success'); toast(`Sleep · ${fmtHours(e.hours)} logged`); },
       /** "Going to bed": start timing the night. */
-      startSleep: () => { patch({ sleepStart: Date.now(), sheet: null }); tap(); toast('Good night · tap “I’m up” when you wake'); },
-      /** "I'm up": turn the timed night into a prefilled sleep sheet (one tap on quality saves it). */
-      endSleep: () => {
-        const start = latest.current.sleepStart;
-        if (start == null) { patch({ sheet: 'sleep' }); return; }
-        const n = nightFromTimes(start, Date.now());
+      /** "Going to bed": start timing the night; with the ultrasonic method, start the sonar too. */
+      startSleep: () => {
+        const now = Date.now();
+        patch({ sleepStart: now, sheet: null });
         tap();
-        patch({ sleepStart: null, sheet: 'sleep', sleepDraft: n.stale ? null : { bed: n.bed, wake: n.wake, date: n.date } });
-        if (n.stale) toast('That bedtime was over 16 h ago · set the times');
+        if (latest.current.sleepMethod === 'sonar') {
+          startSonarNight()
+            .then(r => {
+              patch({ sonarRun: { path: r.path, start: now } });
+              toast(r.mediaVolume < 0.25 ? 'Tracking on · turn media volume up to about half' : 'Good night · ultrasonic tracking is on');
+            })
+            .catch(e => toast(`${String(e?.message ?? e).split('\n')[0]} · timing the night instead`));
+        } else toast('Good night · tap “I’m up” when you wake');
       },
-      cancelSleep: () => { patch({ sleepStart: null }); toast('Sleep timer cancelled'); },
+      /** "I'm up": turn the night into a prefilled sleep sheet; a sonar night is analysed first. */
+      endSleep: () => {
+        const start = latest.current.sleepStart, run = latest.current.sonarRun;
+        if (start == null && !run) { patch({ sheet: 'sleep' }); return; }
+        tap();
+        const timed = () => {
+          const n = nightFromTimes(start ?? run!.start, Date.now());
+          patch({ sleepStart: null, sonarRun: null, sonarBusy: null, sheet: 'sleep', sleepDraft: n.stale ? null : { bed: n.bed, wake: n.wake, date: n.date } });
+          if (n.stale) toast('That bedtime was over 16 h ago · set the times');
+        };
+        if (!run) { timed(); return; }
+        patch({ sonarBusy: 0 });
+        finishSonarNight(run, p => patch({ sonarBusy: p }))
+          .then(night => {
+            const onset = night.onsetMin != null ? run.start + night.onsetMin * 60000 : run.start;
+            const bed = nightFromTimes(onset, Date.now());
+            patch({
+              sonarNights: [...latest.current.sonarNights.filter(x => x.date !== night.date), night].slice(-30),
+              sleepStart: null, sonarRun: null, sonarBusy: null, sheet: 'sleep',
+              sleepDraft: { bed: bed.bed, wake: bed.wake, date: bed.date },
+            });
+          })
+          .catch(e => { toast(`Couldn’t analyse the night: ${String(e?.message ?? e).split('\n')[0]}`); timed(); });
+      },
+      cancelSleep: () => {
+        const run = latest.current.sonarRun;
+        if (run) { stopSonar().catch(() => {}); }
+        patch({ sleepStart: null, sonarRun: null });
+        toast('Sleep tracking cancelled');
+      },
       saveProfile: (p: Profile) => { patch({ profile: p, sheet: null }); tap('success'); toast('Profile saved'); },
       undo: () => {
         const ids = latest.current.toast?.undo;
@@ -186,7 +222,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .catch(() => {})
       .finally(() => { loaded.current = true; });
   }, []);
-  const persisted = useMemo(() => persistedOf(s), [s.heartLog, s.sleepLog, s.profile, s.vitals, s.items, s.water, s.day, s.rep, s.sleepStart, s.bpLog, s.sleepMethod]); // eslint-disable-line react-hooks/exhaustive-deps
+  const persisted = useMemo(() => persistedOf(s), [s.heartLog, s.sleepLog, s.profile, s.vitals, s.items, s.water, s.day, s.rep, s.sleepStart, s.bpLog, s.sleepMethod, s.sonarRun, s.sonarNights]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!loaded.current) return;
     const id = setTimeout(() => { AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(persisted)).catch(() => {}); }, 400);

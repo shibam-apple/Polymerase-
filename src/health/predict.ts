@@ -16,8 +16,11 @@ import { blendBaseline, type DayInput, type Prior } from './recovery';
  *                 recovery independent of duration).
  *  bp-high        Mean of the last 14 days' readings (≥ 3) in ACC/AHA stage 1 (watch) or stage 2 (alert).
  *  bp-trend       Mean systolic of the last 14 days ≥ 5 mmHg above the 14 days before (≥ 2 readings each).
+ *  breathing-up   Last night's average breathing rate (ultrasonic) ≥ the usual + max(1.5 /min, 2 SD),
+ *                 with ≥ 3 earlier nights. Sleeping respiratory rate is very stable within a person and
+ *                 tends to rise with infection (Miller et al. 2021, Sleep; Mishra et al. 2020).
  */
-export type PredictionId = 'strain' | 'overreaching' | 'sleep-debt' | 'sleep-irregular' | 'bp-high' | 'bp-trend';
+export type PredictionId = 'strain' | 'overreaching' | 'sleep-debt' | 'sleep-irregular' | 'bp-high' | 'bp-trend' | 'breathing-up';
 export type Prediction = {
   id: PredictionId;
   level: 'alert' | 'watch';
@@ -35,6 +38,8 @@ export type PredictInput = {
   /** Bedtimes ("HH:MM") of the last nights, oldest first. */
   bedtimes: string[];
   bp: BpReading[];
+  /** Average sleeping breathing rate per night (ultrasonic), oldest first. */
+  nightRates?: number[];
   now: number;
   /** Today's date key (YYYY-MM-DD). */
   today: string;
@@ -167,6 +172,19 @@ export function bpFlags(bp: BpReading[], now: number): Prediction[] {
   return out;
 }
 
+export function breathingFlag(rates: number[]): Prediction | null {
+  if (rates.length < 4) return null;
+  const last = rates[rates.length - 1], prev = rates.slice(-15, -1), m = mean(prev), s = sd(prev);
+  if (last < m + Math.max(1.5, 2 * s)) return null;
+  return {
+    id: 'breathing-up', level: last >= m + 3 ? 'alert' : 'watch', title: 'Breathing faster at night',
+    detail: 'Your breathing rate while asleep is usually very steady. A rise like this can come with an infection, alcohol, a hot room or stress.',
+    evidence: [`${last.toFixed(1)} breaths/min last night vs your usual ${m.toFixed(1)}`],
+    helps: 'Take it easy today and see if it settles tonight.',
+    confidence: prev.length >= 7 ? 'high' : 'medium',
+  };
+}
+
 /** All active predictions, alerts first. */
 export function predict(x: PredictInput): Prediction[] {
   const all = [
@@ -174,6 +192,7 @@ export function predict(x: PredictInput): Prediction[] {
     overreachingFlag(x.days),
     ...sleepFlags(x.days, x.today, x.sleepTargetH, x.bedtimes),
     ...bpFlags(x.bp, x.now),
+    breathingFlag(x.nightRates ?? []),
   ].filter((p): p is Prediction => p != null);
   return all.sort((a, b) => (a.level === b.level ? 0 : a.level === 'alert' ? -1 : 1));
 }

@@ -72,7 +72,8 @@ export function deriveHealth(s: State, now = new Date()): Derived {
     rhr: latestHeart?.hr ?? null, sys: bp.length === 2 ? bp[0] : null, dia: bp.length === 2 ? bp[1] : null,
     weightKg: w.length ? w[0] : null, sleepAvgH: sleepAvg7, rmssd: rmssd7,
   });
-  const predictions = predict({ days, prior, sleepTargetH: target, bedtimes: s.sleepLog.slice(-7).map(x => x.bed), bp: s.bpLog, now: now.getTime(), today });
+  const nightRates = s.sonarNights.map(n => n.rate?.avg).filter((x): x is number => x != null);
+  const predictions = predict({ days, prior, sleepTargetH: target, bedtimes: s.sleepLog.slice(-7).map(x => x.bed), bp: s.bpLog, nightRates, now: now.getTime(), today });
   const breathing = latestHeart?.respRate ?? null;
   return { recovery, forecast, age, latestHeart, todaysHeart, sleepToday, rmssd7, sleepAvg7, days, history, predictions, sleepBoost, breathing };
 }

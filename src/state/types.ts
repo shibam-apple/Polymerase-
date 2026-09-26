@@ -1,4 +1,5 @@
 import type { Profile } from '../health/healthAge';
+import type { StoredNight } from '../sleep/sonarNight';
 import type { Pillar, VitalKey } from '../theme';
 
 export type Item = {
@@ -51,6 +52,12 @@ export type State = {
   bpLog: { at: number; sys: number; dia: number }[];
   /** How nights are recorded: logged by hand, timed with the bed/up taps, or by ultrasonic sonar. */
   sleepMethod: 'manual' | 'timer' | 'sonar';
+  /** The ultrasonic recording in progress (path + start), if any. */
+  sonarRun: { path: string; start: number } | null;
+  /** Analysed ultrasonic nights (summaries only; the raw echo is deleted after analysis). */
+  sonarNights: StoredNight[];
+  /** Analysis progress 0–1 while "I'm up" processes a sonar night, else null. */
+  sonarBusy: number | null;
   /** When "Going to bed" was tapped (ms), while a night is being timed. */
   sleepStart: number | null;
   /** Prefill for the sleep sheet (from "I'm up"); cleared when the sheet saves. */

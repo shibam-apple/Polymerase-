@@ -12,7 +12,8 @@ import { Glass } from '../ui/glass/Glass';
 import { Icon, type IconName } from '../ui/icons';
 import { SleepDial } from '../ui/SleepDial';
 import { InkProvider, T } from '../ui/Text';
-import { DayBars, type DayPoint } from '../viz/charts';
+import { DayBars, Hypnogram, STAGE_COLOR, Waveform, type DayPoint } from '../viz/charts';
+import { SONAR_AVAILABLE, unpackStages, useSonarCheck } from '../sleep/sonarNight';
 
 const QUALITY = ['Poor', 'Fair', 'OK', 'Good', 'Great'];
 const METHODS: [State['sleepMethod'], string, IconName][] = [['timer', 'Tap timer', 'timer'], ['manual', 'Manual', 'pencil'], ['sonar', 'Ultrasonic', 'sonar']];
@@ -49,6 +50,7 @@ export function Sleep({ now, onBack, backLabel = 'Today' }: { now: Date; onBack:
   const asleepH = asleep ? Math.max(0, (now.getTime() - s.sleepStart!) / 3600000) : 0;
   const points: DayPoint[] = week.map(e => ({ date: e.date, v: e.hours }));
   const inner = Math.max(0, w - 32);
+  const sonar = s.sonarNights.length ? s.sonarNights[s.sonarNights.length - 1] : null;
 
   return (
     <View onLayout={e => setW(e.nativeEvent.layout.width)}>
@@ -104,20 +106,17 @@ export function Sleep({ now, onBack, backLabel = 'Today' }: { now: Date; onBack:
         </LinearGradient>
       </View>
 
-      {s.sleepMethod === 'sonar' && (
-        <Animated.View entering={FadeIn.duration(250)}>
-          <Glass radius={22} style={{ marginTop: 10 }} innerStyle={{ padding: 16, gap: 8 }} testID="sonar-info">
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Icon name="sonar" size={20} color={C.sleep} />
-              <T size={16} weight="700" style={{ flex: 1 }}>Ultrasonic tracking</T>
-              <View style={{ paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10, backgroundColor: fill.tertiary }}><T size={11} weight="600" tone="ink2">Next update</T></View>
-            </View>
-            <T size={13} lh={1.45} color={ink.body}>
-              Your phone plays a quiet, inaudible 19–20 kHz tone and listens to its echo. Each breath moves your chest a few millimetres and shifts the echo, which gives breathing rate, movement and estimated sleep stages all night, with nothing to wear.
-            </T>
-            <T size={12} tone="ink2" lh={1.4}>Phone on the nightstand within 1 m, speaker towards you, plugged in. No sound is recorded or uploaded; only the echo’s movement is kept.</T>
-          </Glass>
-        </Animated.View>
+      {s.sleepMethod === 'sonar' && <SonarPanel width={inner} />}
+
+      {s.sonarBusy != null && (
+        <Glass radius={22} style={{ marginTop: 10 }} innerStyle={{ padding: 16, gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Icon name="sonar" size={18} color={C.sleep} />
+            <T size={15} weight="600" style={{ flex: 1 }}>Analysing your night…</T>
+            <T size={13} weight="600" tone="ink2" tabular>{Math.round(s.sonarBusy * 100)}%</T>
+          </View>
+          <View style={{ height: 4, borderRadius: 2, backgroundColor: fill.tertiary, overflow: 'hidden' }}><View style={{ width: `${s.sonarBusy * 100}%`, height: 4, backgroundColor: C.sleep }} /></View>
+        </Glass>
       )}
 
       {/* Last night on the dial */}
@@ -148,12 +147,40 @@ export function Sleep({ now, onBack, backLabel = 'Today' }: { now: Date; onBack:
         )}
       </Glass>
 
+      {sonar && (
+        <Glass radius={24} style={{ marginTop: 10 }} innerStyle={{ padding: 16, gap: 12 }} testID="sonar-night">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Icon name="sonar" size={18} color={C.sleep} />
+            <T size={15} weight="600" style={{ flex: 1 }}>Sleep stages</T>
+            <T size={11} weight="600" tone="ink3">estimated · ultrasonic</T>
+          </View>
+          <Hypnogram stages={unpackStages(sonar.stages)} start={sonar.start} width={inner} />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {(['deep', 'rem', 'light', 'wake'] as const).map(k => (
+              <View key={k} style={{ flex: 1, gap: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}><View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: STAGE_COLOR[k] }} /><T size={11} tone="ink2">{k === 'rem' ? 'REM' : k[0].toUpperCase() + k.slice(1)}</T></View>
+                <T size={15} weight="700" tabular>{Math.round(sonar.minutesBy[k])}m</T>
+              </View>
+            ))}
+          </View>
+          <View style={{ flexDirection: 'row', paddingTop: 10, borderTopWidth: 0.5, borderTopColor: 'rgba(60,60,67,.14)', gap: 8 }}>
+            <Stat icon="lungs" color="#32ade6" value={sonar.rate ? `${sonar.rate.avg}` : '–'} label={sonar.rate ? `breaths/min (${sonar.rate.min}–${sonar.rate.max})` : 'breaths/min'} />
+            <Stat icon="timer" color={C.sleep} value={sonar.onsetMin != null ? `${Math.round(sonar.onsetMin)}m` : '–'} label="to fall asleep" />
+            <Stat icon="sun" color="#ff9f0a" value={String(sonar.wakeups)} label="wake-ups" />
+            <Stat icon="alert" color={sonar.events.perHour >= 15 ? '#ff453a' : sonar.events.perHour >= 5 ? '#ff9f0a' : '#34c759'} value={String(sonar.events.perHour)} label="pauses/hour" />
+          </View>
+          <T size={11} tone="ink3" lh={1.4}>
+            Stages are estimated from breathing regularity and movement ({Math.round(sonar.coverage * 100)}% of the night had a clear signal). Breathing pauses are experimental, not a diagnosis; if you often see 5 or more per hour and feel unrefreshed, talk to a doctor.
+          </T>
+        </Glass>
+      )}
+
       {/* Key numbers */}
       <Glass radius={22} style={{ marginTop: 10 }} innerStyle={{ flexDirection: 'row', padding: 16, gap: 8 }}>
         <Stat icon="moon" color={C.sleep} value={avg != null ? `${Math.floor(avg)}h${String(Math.round((avg % 1) * 60)).padStart(2, '0')}` : '–'} label="7-day average" />
         <Stat icon="timer" color="#32ade6" value={spread != null ? `±${spread}m` : '–'} label="Bedtime spread" />
         <Stat icon="alert" color={debt >= 5 ? '#ff9f0a' : '#34c759'} value={week.length ? `${Math.round(debt * 10) / 10}h` : '–'} label="Sleep debt" />
-        <Stat icon="lungs" color="#32ade6" value={d.breathing != null ? `${Math.round(d.breathing)}` : '–'} label="Breaths/min" />
+        <Stat icon="lungs" color="#32ade6" value={sonar?.rate ? `${sonar.rate.avg}` : d.breathing != null ? `${Math.round(d.breathing)}` : '–'} label="Breaths/min" />
       </Glass>
 
       {/* The week against the goal */}
@@ -169,5 +196,60 @@ export function Sleep({ now, onBack, backLabel = 'Today' }: { now: Date; onBack:
         )}
       </Glass>
     </View>
+  );
+}
+
+/** Ultrasonic tracking: what it does, and a live 30 s setup check with the breathing wave and rate. */
+function SonarPanel({ width }: { width: number }) {
+  const { state: c, start, cancel } = useSonarCheck(30);
+  const running = c.phase === 'starting' || c.phase === 'running';
+  const good = c.snr >= 0.35 && c.rate != null;
+  const w = c.wave, lo = w.length ? Math.min(...w) : 0, hi = w.length ? Math.max(...w) : 1;
+  const trace = w.map(v => (hi > lo ? (v - lo) / (hi - lo) : 0.5));
+  return (
+    <Animated.View entering={FadeIn.duration(250)}>
+      <Glass radius={22} style={{ marginTop: 10 }} innerStyle={{ padding: 16, gap: 10 }} testID="sonar-info">
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Icon name="sonar" size={20} color={C.sleep} />
+          <T size={16} weight="700" style={{ flex: 1 }}>Ultrasonic tracking</T>
+          <View style={{ paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10, backgroundColor: fill.tertiary }}><T size={11} weight="600" tone="ink2">Beta</T></View>
+        </View>
+        <T size={13} lh={1.45} color={ink.body}>
+          Your phone plays a quiet, inaudible tone and listens to its echo. Each breath moves your chest a few millimetres and shifts the echo, which gives breathing rate, movement and estimated sleep stages, with nothing to wear.
+        </T>
+        {!SONAR_AVAILABLE ? (
+          <T size={13} tone="ink2">Available in the Android app.</T>
+        ) : c.phase === 'idle' || c.phase === 'error' ? (
+          <>
+            {c.error ? <T size={13} weight="600" color="#ff453a">{c.error}</T> : null}
+            <T size={12} tone="ink2" lh={1.4}>Before the first night: lie down as you would in bed, phone on the nightstand within 1 m, speaker towards you, and run the check.</T>
+            <PressableScale scaleTo={0.96} onPress={start} style={{ height: 44, borderRadius: 22, backgroundColor: ink[1], alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="Run setup check">
+              <T size={15} weight="600" color="#fff">Run 30-second setup check</T>
+            </PressableScale>
+          </>
+        ) : (
+          <View style={{ gap: 10 }}>
+            <View style={{ height: 56, justifyContent: 'center' }}>
+              {trace.length > 20 ? <Waveform trace={trace} width={width} height={56} color={C.sleep} /> : <T size={13} tone="ink2" center>Listening… lie still and breathe normally</T>}
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+              <T size={34} weight="700" tabular>{c.rate ?? '–'}</T>
+              <T size={13} tone="ink2">breaths/min</T>
+              <T size={12} weight="600" color={good ? '#248a3d' : '#c25e00'} style={{ marginLeft: 'auto' }}>{c.seconds < 12 ? 'Warming up' : good ? 'Signal good' : 'Signal weak'}</T>
+            </View>
+            <View style={{ height: 4, borderRadius: 2, backgroundColor: fill.tertiary, overflow: 'hidden' }}><View style={{ width: `${Math.min(1, c.seconds / 30) * 100}%`, height: 4, backgroundColor: C.sleep }} /></View>
+            {c.mediaVolume != null && c.mediaVolume < 0.25 && <T size={12} weight="600" color="#c25e00">Media volume is low: turn it up to about half (the tone stays inaudible).</T>}
+            {c.phase === 'done' && (
+              <T size={12} tone="ink2" lh={1.4}>
+                {good ? 'Count your own breaths for 30 s and compare. If they match, choose Going to bed tonight.' : 'Move the phone closer (under 1 m), point the bottom speaker towards your chest, remove any case covering the mic, and try again.'}
+              </T>
+            )}
+            <PressableScale scaleTo={0.96} onPress={running ? cancel : start} style={{ height: 40, borderRadius: 20, backgroundColor: fill.tertiary, alignItems: 'center', justifyContent: 'center' }}>
+              <T size={14} weight="600" color={ink[1]}>{running ? 'Stop' : 'Check again'}</T>
+            </PressableScale>
+          </View>
+        )}
+      </Glass>
+    </Animated.View>
   );
 }

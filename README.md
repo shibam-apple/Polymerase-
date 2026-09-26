@@ -189,6 +189,36 @@ Where glass is used:
   - Icon stats: 7-day average, bedtime spread, sleep debt, breathing.
   - The week against your goal.
 
+## Ultrasonic breathing and sleep tracking (beta, Android)
+
+Sleep page → **Ultrasonic** → run the 30-second setup check once, then tap **Going to bed**.
+
+**How it works**
+- The phone becomes a sonar (`modules/sonar`, Kotlin, in a foreground service).
+- **Transmit:** the speaker plays three quiet, inaudible tones (18.9, 19.5 and 20.1 kHz), about 40 dB at typical media volume.
+- **Demodulate:** the microphone signal (UNPROCESSED source where the phone supports it) is demodulated per tone to I/Q baseband by integrate-and-dump over 0.1 s blocks, giving 10 records a second.
+- **Nothing audible is stored.** Only these baseband numbers are kept, about 7 MB a night, and they are deleted after analysis.
+
+**Analysis** (`src/sleep/sonar.ts`, unit-tested on synthetic echoes)
+- **Static-vector removal.** Each 30 s epoch is de-rotated (speaker/mic clock offset). A circle is fitted to its I/Q points (Kasa least squares): the chest echo traces an arc around the static reflections.
+- **Chest displacement.** The angle around the circle's centre gives displacement: d = λ·φ/4π, where λ ≈ 1.7 cm.
+- **Tone selection.** For each epoch, the tone with the strongest breathing band (0.1–0.7 Hz) is kept.
+- **Breathing:**
+  - rate from the autocorrelation peak
+  - breath-to-breath intervals and their variability
+  - amplitude
+- **Movement index:** the baseband step size relative to the echo radius.
+- **Presence:** breathing SNR plus an echo-to-noise ratio.
+- **Sleep / wake:** Cole–Kripke-weighted movement.
+- **Estimated stages:**
+  - deep: steady breathing, still for 5 min
+  - REM: irregular breathing without movement, after the first hour
+  - light: otherwise
+  - Smoothed with a 3-epoch filter.
+- **Breathing pauses (experimental):** the 4 s breathing envelope drops ≥ 90% (apnea-like) or 30–90% (hypopnea-like) for ≥ 10 s against the previous 2 min.
+- The night's average breathing rate feeds a **"breathing faster at night"** prediction.
+- Based on smartphone-sonar work: SonarBeat (Wang et al., SECON 2017 / ACM HEALTH 2021) and ApneaApp (Nandakumar et al., MobiSys 2015). Stages from breathing and movement are an *estimate*; published contactless REM/NREM accuracy is around 84%.
+
 ## Install the test build on your phone
 
 Open **https://github.com/shibam-apple/Polymerase-/releases/tag/test-latest** on your Android phone, tap

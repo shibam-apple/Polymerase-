@@ -135,8 +135,10 @@ export function HomeCard({ d, now, dark, nx, left, onPage }: { d: Derived; now: 
       ) : null}
 
       {/* Sleep toggle (evening / while asleep / morning without a log) */}
-      {s.sleepStart != null ? (
-        <Row testID="sleep-toggle" icon="sun" iconColor={WARN} title="I’m up" sub={`Asleep since ${clock(s.sleepStart)} · ${Math.floor(asleepH)} h ${Math.round((asleepH % 1) * 60)} m`} fill={fill} onPress={a.endSleep}
+      {s.sonarBusy != null ? (
+        <Row icon="sonar" iconColor={C.sleep} title="Analysing your night…" sub={`${Math.round(s.sonarBusy * 100)}% · breathing and sleep stages`} fill={fill} onPress={() => onPage('sleep')} />
+      ) : s.sleepStart != null ? (
+        <Row testID="sleep-toggle" icon="sun" iconColor={WARN} title="I’m up" sub={`${s.sonarRun ? 'Ultrasonic tracking · ' : ''}asleep since ${clock(s.sleepStart)} · ${Math.floor(asleepH)} h ${Math.round((asleepH % 1) * 60)} m`} fill={fill} onPress={a.endSleep}
           trailing={<Pressable onPress={a.cancelSleep} hitSlop={10} accessibilityLabel="Cancel sleep timer"><T size={13} weight="600" tone="ink2">Cancel</T></Pressable>} />
       ) : hour >= 20 || hour < 4 ? (
         <Row testID="sleep-toggle" icon="moon" iconColor={C.sleep} title="Going to bed" sub="Tap now, then “I’m up” when you wake" fill={fill} onPress={a.startSleep} trailing={<Icon name="chevron" size={16} color={ink2.ink3} />} />

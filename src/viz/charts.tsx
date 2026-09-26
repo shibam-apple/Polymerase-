@@ -217,3 +217,30 @@ export function Poincare({ ibis, sd1, sd2, size }: { ibis: number[]; sd1?: numbe
     </Svg>
   );
 }
+
+// ── Hypnogram: estimated sleep stages across the night ───────────────────────
+const STAGE_ROW = { wake: 0, rem: 1, light: 2, deep: 3 } as const;
+export const STAGE_COLOR = { wake: '#ff9f0a', rem: '#5ac8fa', light: '#6e6af0', deep: '#3a2fa8' } as const;
+export function Hypnogram({ stages, start, width, height = 120 }: { stages: string[]; start: number; width: number; height?: number }) {
+  if (stages.length < 2 || width <= 0) return <View style={{ height }} />;
+  const padL = 44, padB = 18, rowH = (height - padB) / 4, W = width - padL, n = stages.length, dx = W / n;
+  const runs: { s: string; a: number; b: number }[] = [];
+  stages.forEach((s, i) => { const r = runs[runs.length - 1]; if (r && r.s === s) r.b = i + 1; else runs.push({ s, a: i, b: i + 1 }); });
+  const clock = (t: number) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  return (
+    <Svg width={width} height={height}>
+      {(['wake', 'rem', 'light', 'deep'] as const).map(k => (
+        <G key={k}>
+          <Line x1={padL} x2={width} y1={STAGE_ROW[k] * rowH + rowH / 2} y2={STAGE_ROW[k] * rowH + rowH / 2} stroke="rgba(60,60,67,.08)" strokeWidth={1} />
+          <SvgText fontFamily={SVG_FONT} x={0} y={STAGE_ROW[k] * rowH + rowH / 2 + 4} fontSize={11} fontWeight="600" fill={STAGE_COLOR[k]}>{k === 'rem' ? 'REM' : k[0].toUpperCase() + k.slice(1)}</SvgText>
+        </G>
+      ))}
+      {runs.filter(r => r.s !== 'out').map((r, i) => {
+        const k = r.s as keyof typeof STAGE_ROW;
+        return <Rect key={i} x={padL + r.a * dx} y={STAGE_ROW[k] * rowH + 3} width={Math.max(1.5, (r.b - r.a) * dx)} height={rowH - 6} rx={3} fill={STAGE_COLOR[k]} />;
+      })}
+      <SvgText fontFamily={SVG_FONT} x={padL} y={height - 4} fontSize={10} fill={ink[3]}>{clock(start)}</SvgText>
+      <SvgText fontFamily={SVG_FONT} x={width} y={height - 4} fontSize={10} fill={ink[3]} textAnchor="end">{clock(start + n * 30000)}</SvgText>
+    </Svg>
+  );
+}
